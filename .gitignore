@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code workspace state
+.claude/
+
+# Auto-generated scanner reports (regenerate locally as needed)
+Reports/
+
+# Real environment files (this repo ships intentionally fake credentials in
+# committed files like public/js/env.js and public/config.json; if you copy
+# this repo and add a *real* .env, this rule keeps it out of git)
+.env
+.env.*
+!.env.example
+
+# Build artifacts (none today, but reserved)
+dist/
+build/
+
+# Backup files
+*.bak
+*~
