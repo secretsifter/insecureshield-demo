@@ -245,13 +245,17 @@ npm start</pre>
 
 <p>The app listens on <code>http://localhost:3000</code>. Open the URL — you should see the "InsecureShield Client Portal" login page.</p>
 
-<p>The demo ships with three small helper scripts at the project root — you'll use them in chains 2 and 3:</p>
+<p>The demo ships with three small helper scripts at the project root — you'll use them in Chain 1 (hash crack) and Chain 2 (blob decrypt):</p>
 
-<ul>
-  <li><code>decrypt.py</code> — reverses the CryptoJS-encrypted blob in <code>main.js</code> using the openssl binary already on every Mac/Linux</li>
-  <li><code>crack.py</code> — reverses a captured <code>SHA-256(password+salt)</code> hash by trying every entry in <code>wordlist.txt</code></li>
-  <li><code>wordlist.txt</code> — 51 realistic common passwords (the same kind a pentester would try first)</li>
-</ul>
+<div class="callout tool">
+  <strong>Helper scripts in this repo</strong>
+  <ul style="margin: 4px 0 0 14px; padding: 0;">
+    <li><a href="https://github.com/secretsifter/insecureshield-demo/blob/main/decrypt.py" style="color:#22C55E;"><code>decrypt.py</code></a> &mdash; reverses the CryptoJS-encrypted blob in <code>main.js</code>. Wraps the system <code>openssl</code> binary, zero pip dependencies.</li>
+    <li><a href="https://github.com/secretsifter/insecureshield-demo/blob/main/crack.py" style="color:#22C55E;"><code>crack.py</code></a> &mdash; reverses a captured <code>SHA-256(password+salt)</code> hash. Reads <code>HASH:SALT</code> on stdin, tries every entry in <code>wordlist.txt</code>.</li>
+    <li><a href="https://github.com/secretsifter/insecureshield-demo/blob/main/wordlist.txt" style="color:#22C55E;"><code>wordlist.txt</code></a> &mdash; 51 realistic common passwords. Append your own line-by-line.</li>
+  </ul>
+  <p style="margin: 6px 0 0 0; font-size: 8.5pt; color: #4B5563;">All three live at the <em>root</em> of the cloned repo (next to <code>server.js</code>) — that's where the relative-path reads expect to find each other. Run them from the project directory: <code>cd insecureshield-demo &amp;&amp; python3 decrypt.py</code>.</p>
+</div>
 
 <p>No <code>pip install</code> required for either script — both run on stock Python 3.</p>
 
