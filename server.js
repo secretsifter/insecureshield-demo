@@ -33,14 +33,43 @@ const PORT = 3000;
 // Hardcoded credentials / secrets (intentional for SecretSifter demo)
 // ─────────────────────────────────────────────────────────────────────────────
 const JWT_SECRET  = "D3moP0rtal#JWT!2024@TestKey99";          // JWT signing secret
-const APIM_KEY    = "f4e9b3a7c2d8f1e6b4a9c3d7f2e8b1a5";        // Azure APIM subscription key
+const APIM_KEY    = "a1b2c3d4e5f6789012345678901234ab";        // Azure APIM subscription key
 const ADMIN_EMAIL = "admin@acme-portal.com";
 const ADMIN_PASS  = "InsecureShield@2024";
 const DB_CONN_STR = "Server=prod-db.acme-portal.internal;Database=AcmePortalDB;User Id=sa;Password=X7!kP#9mQvLr3$nBs;";
 
+// Public Azure AD application credentials accepted by /api/auth/generate-token.
+// These match the values inside AZURE_AD_CONFIG in public/js/main.js.
+// Chain 1: anyone who reads main.js can mint an "admin" token with these.
+const AAD_APP_ID       = "8f4e2d1c-9b3a-4f6e-8a7d-2c1b9e5f4a3d";
+const AAD_APP_KEY      = "Ins~K3y.qX7vN9bM4dZ8mP2hT5wL1eC6rJ0aFgYi==";
+const AAD_RESOURCE_KEY = "R7vN3kQ9pX5tL2cD8fG6hJ1mB4sY0aW7eK3rT9zU1nM5oI8jH2vC6bF4yE7wQ0pA==";
+
+// "Hidden" Azure AD admin app — credentials live INSIDE the CryptoJS blob.
+// Chain 2: attacker must decrypt ENCRYPTED_SP_CONFIG to discover these.
+// Same /api/auth/generate-token endpoint accepts them, but issues a "superadmin"
+// token that can reach /api/admin/* — endpoints the public token cannot.
+const AAD_ADMIN_APP_ID       = "9a8b7c6d-5e4f-3a2b-1c0d-ef9876543210";
+const AAD_ADMIN_APP_KEY      = "AdmIn~App.Q4-2024.7vR3xW5tY1uO4sD6jF~AcmePortal";
+const AAD_ADMIN_RESOURCE_KEY = "AdminRes.K3y.aB2cD3fG4hJ5kL6mN7oP8qR9sT0u1vW==";
+
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Global no-cache for live-demo visibility: every request — static or API —
+// returns a full 200 with body, every reload shows a fresh entry in Burp's
+// HTTP history, no 304 Not Modified anywhere.
+app.use((req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    res.setHeader('Pragma',  'no-cache');
+    res.setHeader('Expires', '0');
+    next();
+});
+
+app.use(express.static(path.join(__dirname, 'public'), {
+    etag:         false,    // no ETag → no If-None-Match revalidation
+    lastModified: false     // no Last-Modified → no If-Modified-Since
+}));
 
 // In-memory revocation list — tokens added here are rejected even if still JWT-valid
 const revokedTokens = new Set();
@@ -48,10 +77,20 @@ const revokedTokens = new Set();
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth middleware
 // ─────────────────────────────────────────────────────────────────────────────
+// Mimics an Azure APIM gateway: every protected route requires BOTH
+//   (a) a valid Bearer access_token (issued by /api/auth/generate-token or sp-token)
+//   (b) a valid Ocp-Apim-Subscription-Key header
+// Either missing → 401. Either wrong → 401. This forces attackers to surface
+// both secrets from main.js before reaching any data.
 function requireToken(req, res, next) {
+    const subKey = req.headers['ocp-apim-subscription-key']
+                || req.headers['apim-subscription-key'];
+    if (!subKey || subKey !== APIM_KEY) {
+        return res.status(401).json({ error: 'Missing or invalid Ocp-Apim-Subscription-Key' });
+    }
     const auth  = req.headers['authorization'] || '';
     const token = auth.replace(/^Bearer\s+/i, '').trim();
-    if (!token) return res.status(401).json({ error: 'No token provided' });
+    if (!token) return res.status(401).json({ error: 'No Bearer token provided' });
     if (revokedTokens.has(token)) return res.status(401).json({ error: 'Token has been revoked' });
     try {
         req.user = jwt.verify(token, JWT_SECRET);
@@ -108,27 +147,102 @@ app.post('/api/logout', (req, res) => {
     res.json({ message: 'Logged out. Token revoked.' });
 });
 
-// [2] APIM key → JWT  (Attack chain Step 1)
+// [2] Azure AD client_credentials → Bearer token  (Attack Chain 1 Step 2)
 //     POST /api/auth/generate-token
-//     Header:  apim-subscription-key: <key>
-//     Returns: { access_token, token_type, expires_in, scope }
+//     Headers (preferred):  appId, appKey, resourceKey      ← all three from AZURE_AD_CONFIG
+//     Body (fallback):      { appId, appKey, resourceKey }
+//     Returns:              { access_token, resource_key, token_type, expires_in, scope }
+//     Note: the response *echoes* resource_key so attackers see another secret in transit
+//     (SecretSifter-style response scanners pick it up). The subscription key is NOT
+//     required to mint a token — only to USE it against data endpoints.
 app.post('/api/auth/generate-token', (req, res) => {
-    const key = req.headers['ocp-apim-subscription-key']       // standard Azure APIM header
-             || req.headers['apim-subscription-key']           // legacy / shorthand variant
-             || (req.body && (req.body['apim-subscription-key'] || req.body.key));
-    if (key === APIM_KEY) {
+    // Express lowercases header names. Body is a fallback for non-Burp callers.
+    const appId       = req.headers['appid']       || (req.body && req.body.appId);
+    const appKey      = req.headers['appkey']      || (req.body && req.body.appKey);
+    const resourceKey = req.headers['resourcekey'] || (req.body && req.body.resourceKey);
+
+    if (!appId || !appKey || !resourceKey) {
+        return res.status(400).json({
+            error: 'appId, appKey and resourceKey are required (as headers or in JSON body)'
+        });
+    }
+
+    // Path 1 — public Azure AD credentials from main.js → admin token
+    if (appId === AAD_APP_ID && appKey === AAD_APP_KEY && resourceKey === AAD_RESOURCE_KEY) {
         const token = jwt.sign(
-            { role: 'admin', source: 'apim' },
+            { role: 'admin', source: 'apim', app_id: appId },
             JWT_SECRET, { expiresIn: '4h' }
         );
         return res.json({
             access_token: token,
+            resource_key: AAD_RESOURCE_KEY,
             token_type:   'Bearer',
             expires_in:   14400,
             scope:        'policies.read claims.read users.read'
         });
     }
-    res.status(403).json({ error: 'Invalid APIM subscription key' });
+
+    // Path 2 — admin Azure AD credentials from the decrypted CryptoJS blob → superadmin token
+    if (appId === AAD_ADMIN_APP_ID && appKey === AAD_ADMIN_APP_KEY && resourceKey === AAD_ADMIN_RESOURCE_KEY) {
+        const token = jwt.sign(
+            { role: 'superadmin', source: 'sp', app_id: appId },
+            JWT_SECRET, { expiresIn: '4h' }
+        );
+        return res.json({
+            access_token: token,
+            resource_key: AAD_ADMIN_RESOURCE_KEY,
+            token_type:   'Bearer',
+            expires_in:   14400,
+            scope:        'admin.config.read admin.diagnostics admin.dbconn'
+        });
+    }
+
+    return res.status(401).json({ error: 'Invalid Azure AD application credentials' });
+});
+
+// [SP-1] Internal configuration — only callable by SP-sourced tokens.
+//        GET /api/admin/internal-config
+function requireSpToken(req, res, next) {
+    requireToken(req, res, () => {
+        if (req.user.source !== 'sp') {
+            return res.status(403).json({ error: 'SP-sourced token required' });
+        }
+        next();
+    });
+}
+
+app.get('/api/admin/internal-config', requireSpToken, (req, res) => {
+    res.json({
+        IsSuccess: true,
+        config: {
+            jwt_secret_fingerprint: 'SHA256:' + require('crypto').createHash('sha256').update(JWT_SECRET).digest('hex').slice(0,16),
+            db_conn_string:         DB_CONN_STR,
+            apim_subscription_key:  APIM_KEY,
+            admin_email:            ADMIN_EMAIL,
+            internal_services: [
+                'https://claims-svc.acme-portal.internal/api/v1',
+                'https://policy-svc.acme-portal.internal/api/v1',
+                'https://reporting.acme-portal.internal/api'
+            ]
+        }
+    });
+});
+
+// [SP-2] Diagnostics — total tenant footprint, only callable by SP token.
+app.get('/api/admin/diagnostics', requireSpToken, (req, res) => {
+    res.json({
+        IsSuccess: true,
+        tenant: 'acme-portal-prod-2024',
+        sp_id:  req.user.sp_id,
+        privileges_granted_by_token: ['admin.config.read', 'admin.diagnostics', 'admin.dbconn'],
+        runtime: {
+            uptime_seconds:       Math.floor(process.uptime()),
+            node_version:         process.version,
+            customer_count:       customers.length,
+            policy_count:         policies.length,
+            claim_count:          claims.length
+        }
+    });
 });
 
 // [3] List all policies  (Attack chain Step 2)
