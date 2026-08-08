@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>InsecureShield — Reproduce the Talk at Home</title>
+<title>Four Values in a JavaScript File — Credential to Account Takeover · RTV DEF CON 34</title>
 <style>
   @page {
     size: Letter;
@@ -211,18 +211,60 @@
     font-size: 10pt;
   }
   .closing strong { color: #F97316; }
+
+  /* event header — RTV / DEF CON 34 */
+  .event-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    margin: 0 0 10px 0;
+  }
+  .event-header .ev-logo { height: 68px; width: auto; flex: 0 0 auto; }
+  .event-header .ev-title { text-align: center; flex: 1 1 auto; }
+  .ev-event {
+    font-size: 10pt;
+    font-weight: bold;
+    letter-spacing: 1.5px;
+    color: #DC2626;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+  }
+  .ev-title h1 { font-size: 21pt; margin: 0; color: #0F172A; letter-spacing: -0.5px; }
+  .ev-sub { font-size: 12.5pt; color: #6B7280; margin-top: 3px; font-weight: 600; }
+  .meta-strip.event { border-top-color: #DC2626; }
+  .prereq-box {
+    border: 1px solid #2563EB;
+    background: #EFF6FF;
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin: 12px 0;
+    font-size: 9pt;
+  }
+  .prereq-box > strong { color: #1D4ED8; display: block; margin-bottom: 4px; }
+  .prereq-box ul { margin: 4px 0 0 16px; padding: 0; }
+  .prereq-box li { margin-bottom: 3px; }
 </style>
 </head>
 <body>
 
-<h1>InsecureShield — Reproduce the Talk at Home <span class="accent">↻</span></h1>
-<p class="subtitle">A step-by-step walkthrough of two production-grade credential exposure chains.<br>
-30 minutes from clone to "I saw it with my own eyes."</p>
-
-<div class="meta-strip">
-  <span><strong>Talk:</strong> Secrets That Survive Everything · <strong>Speaker:</strong> Hemanth Gorijala</span>
-  <span><strong>Repo:</strong> github.com/secretsifter/insecureshield-demo</span>
+<div class="event-header">
+  <img class="ev-logo" src="assets/redteam_village_icon.svg" alt="Red Team Village">
+  <div class="ev-title">
+    <div class="ev-event">Red Team Village · DEF CON 34</div>
+    <h1>Four Values in a JavaScript File</h1>
+    <div class="ev-sub">Credential to Account Takeover</div>
+  </div>
+  <img class="ev-logo" src="assets/defcon34_logo.png" alt="DEF CON 34">
 </div>
+
+<div class="meta-strip event">
+  <span><strong>Where:</strong> Workshop Stage 1</span>
+  <span><strong>When:</strong> Sun Aug 9 · 10:00–11:00 AM PT</span>
+  <span><strong>Speaker:</strong> Hemanth Gorijala</span>
+</div>
+
+<p class="subtitle">A hands-on, step-by-step walkthrough of two production-grade credential exposure chains — from a JavaScript file to full account takeover. Everything runs locally against <code>localhost:3000</code>, no external connectivity required.</p>
 
 <div class="warn-box">
   <strong>Safety note.</strong> All credentials in InsecureShield are <em>synthetic</em> — pattern-valid but no working external service stands behind them. The portal also has its own local backend that mimics the Azure APIM token-exchange flow, so every chain replays end-to-end against <code>localhost:3000</code> with zero external dependencies. Treat it like a CTF target on a private network. Do not deploy it to a public host.
@@ -236,11 +278,24 @@
   ④ Extra credit — IDOR, no-password account takeover, and a key leaked in the WebSocket handshake
 </div>
 
+<div class="prereq-box">
+  <strong>Prerequisites — install these BEFORE the session (con wifi is unreliable)</strong>
+  <ul>
+    <li><strong>Node.js 18+ and npm</strong> — runs the lab. Check with <code>node -v</code>; install from <code>nodejs.org</code>.</li>
+    <li><strong>Burp Suite Community Edition</strong> (free) — <code>portswigger.net/burp/communitydownload</code>. You send the raw HTTP requests in every step from Burp Repeater.</li>
+    <li><strong>Git</strong> — to clone the repo.</li>
+    <li><strong>Python 3</strong> — runs the bundled <code>crack.py</code> / <code>decrypt.py</code> (ships on macOS/Linux; on Windows use python.org or WSL). No <code>pip install</code> needed.</li>
+    <li><strong>A modern browser with DevTools</strong> — Chrome, Firefox, or Safari.</li>
+    <li><strong>SecretSifter extension</strong> — ships in this repo at <code>tools/secretsifter-store-1.2.42.jar</code>; load it in Burp, no build required.</li>
+  </ul>
+  <p style="margin:6px 0 0 0;font-size:8.5pt;color:#4B5563;">Do the <code>git clone</code> + <code>npm install</code> + Burp install on hotel/home wifi before arriving. The con network is hostile.</p>
+</div>
+
 <!-- =========================== SECTION 1 ============================ -->
 
 <h2><span class="num">1</span>Setup — 5 minutes</h2>
 
-<p><strong>Prerequisites:</strong> Node.js 18+ and npm. A modern browser with DevTools (Chrome / Firefox / Safari). Optional but recommended: Burp Suite Community Edition for the live-replay segments.</p>
+<p>With the prerequisites above installed, clone and start the lab:</p>
 
 <pre>git clone https://github.com/secretsifter/insecureshield-demo.git
 cd insecureshield-demo
