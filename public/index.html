@@ -8,7 +8,7 @@
     <!-- Internal API config — TODO: move to vault before prod release
          api_gateway_url: https://acme-portal-api.azure-api.net/v2
          apim-subscription-key: a1b2c3d4e5f6789012345678901234ab
-         dev_admin: admin@acme-portal.com / InsecureShield@2024
+         dev_admin: admin@acme-portal.com / (password rotated to Key Vault)
          db_conn: Server=prod-db.acme-portal.internal;Database=AcmePortalDB;User Id=sa;Password=Pr0d$ql2024!;
     -->
     <script src="/js/crypto-js.min.js"></script>
@@ -56,20 +56,6 @@
                 </button>
             </form>
 
-            <div class="demo-creds" style="margin-top:18px;padding:12px 14px;background:#FEF3C7;border:1px solid #F59E0B;border-radius:6px;font-size:12px;color:#78350F;">
-                <strong style="display:block;margin-bottom:6px;color:#92400E;">⚡ Demo accounts &mdash; click to autofill</strong>
-                <div style="display:flex;flex-direction:column;gap:4px;">
-                    <a href="#" onclick="fillCreds('admin@acme-portal.com','InsecureShield@2024');return false;"
-                       style="color:#1E3A8A;text-decoration:none;font-family:Menlo,monospace;">
-                       Admin &nbsp;&middot;&nbsp; admin@acme-portal.com / InsecureShield@2024
-                    </a>
-                    <a href="#" onclick="fillCreds('james.mitchell@gmail.com','Pass@1234');return false;"
-                       style="color:#1E3A8A;text-decoration:none;font-family:Menlo,monospace;">
-                       Customer &nbsp;&middot;&nbsp; james.mitchell@gmail.com / Pass@1234
-                    </a>
-                </div>
-            </div>
-
             <div class="auth-footer">
                 <p>Need help? <a href="#">Contact Support</a></p>
                 <p class="auth-legal">By signing in, you agree to our <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a></p>
@@ -91,15 +77,6 @@
     </div>
 
     <script>
-        // Demo-only helper: autofill credentials when an audience member clicks
-        // one of the "Demo accounts" links above. Keeps the live demo flowing
-        // without the operator having to type passwords on stage.
-        function fillCreds(email, password) {
-            document.getElementById('email').value    = email;
-            document.getElementById('password').value = password;
-            document.getElementById('email').focus();
-        }
-
         async function handleLogin(e) {
             e.preventDefault();
             const btn   = document.getElementById('loginBtn');

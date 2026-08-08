@@ -220,7 +220,7 @@
 30 minutes from clone to "I saw it with my own eyes."</p>
 
 <div class="meta-strip">
-  <span><strong>Talk:</strong> Secrets That Survive Everything · <strong>Speaker:</strong> @secretsifter</span>
+  <span><strong>Talk:</strong> Secrets That Survive Everything · <strong>Speaker:</strong> Hemanth Gorijala</span>
   <span><strong>Repo:</strong> github.com/secretsifter/insecureshield-demo</span>
 </div>
 
@@ -293,15 +293,15 @@ npm start</pre>
 <pre>&lt;!-- Internal API config — TODO: move to vault before prod release
      api_gateway_url:       https://acme-portal-api.azure-api.net/v2
      apim-subscription-key: a1b2c3d4e5f6789012345678901234ab
-     dev_admin:             admin@acme-portal.com / InsecureShield@2024
+     dev_admin:             admin@acme-portal.com / (password rotated to Key Vault)
      db_conn:                Server=prod-db.acme-portal.internal;Database=AcmePortalDB;User Id=sa;Pas...
 --&gt;</pre>
 
 <div class="callouts">
-  <div class="callout find"><strong>What you'll find</strong>API gateway URL, APIM subscription key, dev admin credentials, prod DB connection string. All visible to anyone who right-clicks.</div>
-  <div class="callout why"><strong>Why it matters</strong>The comment says "TODO: move to vault before prod release" — which means it never happened. This is how secrets ship to production. The developer's intent didn't survive the deadline.</div>
+  <div class="callout find"><strong>What you'll find</strong>API gateway URL, APIM subscription key, the admin's <em>email</em>, and a prod DB connection string. All visible to anyone who right-clicks.</div>
+  <div class="callout why"><strong>Why it matters</strong>The comment says "TODO: move to vault before prod release" — which means it never happened. Note the admin <em>password</em> was moved out ("rotated to Key Vault"), but the email stayed. Hold onto that email — you'll recover the matching password in Chain 2 and log in as admin.</div>
   <div class="callout notool"><strong>Without tools</strong>Browser DevTools, no JavaScript engagement required. Anyone with a right-click button finds this in seconds.</div>
-  <div class="callout tool"><strong>SecretSifter catches</strong>DB password, admin credentials, and APIM subscription key in the HTML response at <strong>HIGH</strong> severity, <strong>CERTAIN</strong> confidence.</div>
+  <div class="callout tool"><strong>SecretSifter catches</strong>DB password, admin email, and APIM subscription key in the HTML response at <strong>HIGH</strong> severity, <strong>CERTAIN</strong> confidence.</div>
 </div>
 
 <h3><span class="step">2.2</span>The Azure AD application credentials in main.js</h3>
@@ -544,6 +544,7 @@ Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
     "db_conn_string":         "Server=prod-db.acme-portal.internal;Database=AcmePortalDB;User Id=sa;Password=X7!kP#9mQvLr3$nBs;",
     "apim_subscription_key":  "a1b2c3d4e5f6789012345678901234ab",
     "admin_email":            "admin@acme-portal.com",
+    "admin_password":         "InsecureShield@2024",
     "internal_services": [
       "https://claims-svc.acme-portal.internal/api/v1",
       "https://policy-svc.acme-portal.internal/api/v1",
@@ -552,7 +553,23 @@ Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
   }
 }</pre>
 
-<div class="callout why"><strong>Punchline read aloud:</strong> "<em>The 'encrypted' configuration hid an Azure admin app. That admin app unlocks the production database connection string — including the sa password. The encryption added one openssl call to the attack chain.</em>"</div>
+<p>The config leaks the prod DB connection string <em>and</em> the admin portal password — the same admin whose email you spotted in the view-source comment back in step 2.1. The password that was "rotated to Key Vault" is sitting right here in plaintext.</p>
+
+<h3><span class="step">3.5</span>Log in to the portal as admin — the human-facing payoff</h3>
+
+<p>The superadmin token was an API credential. Now use the recovered pair to log in to the actual portal UI, the way a real admin does. In the browser, open <code>http://localhost:3000</code> and sign in — or prove it in Repeater:</p>
+
+<pre>POST /api/login HTTP/1.1
+Host: localhost:3000
+Content-Type: application/json
+
+{"email":"admin@acme-portal.com","password":"InsecureShield@2024"}</pre>
+
+<p><strong>Expected response:</strong></p>
+
+<pre>{"IsSuccess":true,"token":"eyJhbGc...","role":"admin","name":"Admin User"}</pre>
+
+<div class="callout why"><strong>Punchline read aloud:</strong> "<em>The 'encrypted' configuration hid an Azure admin app. That admin app unlocked the production database connection string and the admin portal password — so I am now logged into the portal as the administrator. The encryption added one openssl call to the attack chain.</em>"</div>
 
 <!-- =========================== SECTION 3.5 — EXTRA CREDIT ============================ -->
 

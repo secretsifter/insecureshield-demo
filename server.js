@@ -219,6 +219,7 @@ app.get('/api/admin/internal-config', requireSpToken, (req, res) => {
             db_conn_string:         DB_CONN_STR,
             apim_subscription_key:  APIM_KEY,
             admin_email:            ADMIN_EMAIL,
+            admin_password:         ADMIN_PASS,
             internal_services: [
                 'https://claims-svc.acme-portal.internal/api/v1',
                 'https://policy-svc.acme-portal.internal/api/v1',
