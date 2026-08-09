@@ -220,7 +220,7 @@
     gap: 18px;
     margin: 0 0 10px 0;
   }
-  .event-header .ev-logo { height: 60px; width: auto; flex: 0 0 auto; background: #0A0B0F; border-radius: 12px; padding: 8px 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.22); }
+  .event-header .ev-logo { height: 86px; width: auto; flex: 0 0 auto; background: #0A0B0F; border-radius: 14px; padding: 9px 13px; box-shadow: 0 2px 10px rgba(0,0,0,0.25); }
   .event-header .ev-title { text-align: center; flex: 1 1 auto; }
   .ev-event {
     font-size: 10pt;
@@ -247,6 +247,19 @@
   .prereq-box a { color: #1D4ED8; font-weight: bold; }
   .curl-label { font-size: 8pt; color: #059669; font-weight: bold; margin: 8px 0 2px 0; text-transform: uppercase; letter-spacing: 0.6px; }
   pre.curl { border-left: 3px solid #22C55E; }
+  @media screen {
+    .codewrap { position: relative; }
+    .copybtn {
+      position: absolute; top: 8px; right: 8px;
+      font: 600 11px/1 "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: #E5E7EB; background: rgba(148,163,184,0.20);
+      border: 1px solid rgba(148,163,184,0.40); border-radius: 5px;
+      padding: 5px 10px; cursor: pointer; transition: background 0.15s, color 0.15s;
+    }
+    .copybtn:hover { background: rgba(148,163,184,0.35); }
+    .copybtn.ok { background: #22C55E; border-color: #22C55E; color: #04210F; }
+  }
+  @media print { .copybtn { display: none !important; } }
 </style>
 </head>
 <body>
@@ -960,6 +973,39 @@ new Pattern(
     <li><strong>Contact:</strong> @secretsifter on Bluesky · infosec.exchange</li>
   </ul>
 </div>
+
+<script>
+/* Click-to-copy on every code block. Copies the block's exact textContent —
+   real newlines, no selection/PDF artifacts — so pasted curl/HTTP never breaks. */
+(function () {
+  function flash(btn) {
+    btn.textContent = 'Copied!'; btn.classList.add('ok');
+    setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('ok'); }, 1400);
+  }
+  function fallbackCopy(text, btn) {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.top = '-1000px'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta); flash(btn);
+  }
+  function doCopy(text, btn) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { flash(btn); }, function () { fallbackCopy(text, btn); });
+    } else { fallbackCopy(text, btn); }
+  }
+  document.querySelectorAll('pre').forEach(function (pre) {
+    var wrap = document.createElement('div');
+    wrap.className = 'codewrap';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+    var btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'copybtn'; btn.textContent = 'Copy';
+    btn.addEventListener('click', function () { doCopy(pre.textContent, btn); });
+    wrap.appendChild(btn);
+  });
+})();
+</script>
 
 </body>
 </html>
