@@ -37,7 +37,7 @@ password is not handed to you here — you recover it during Chain 2 and log in 
 Point Burp's proxy at the browser (or use `curl` directly — both paths are shown below).
 
 > **Prefer step-by-step with raw Burp Repeater requests and expected responses?** See the full
-> illustrated walkthrough at [`../docs/reproduction-guide.pdf`](../docs/reproduction-guide.pdf).
+> illustrated walkthrough at [`../docs/defcon34/reproduction-guide.pdf`](../docs/defcon34/reproduction-guide.pdf).
 > This worksheet is the fast curl-based cheat-sheet; the guide is the detailed version.
 
 ---
